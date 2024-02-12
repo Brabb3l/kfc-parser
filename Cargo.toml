@@ -1,0 +1,3 @@
+[workspace]
+members = [ "cli", "parser" , "shared"]
+resolver = "2"

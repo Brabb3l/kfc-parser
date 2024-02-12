@@ -1,0 +1,19 @@
+[package]
+name = "cli"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.79"
+bitflags = "2.4.2"
+clap = "4.5.0"
+clap_derive = "4.5.0"
+crossbeam-channel = "0.5.11"
+parser = { path = "../parser" }
+shared = { path = "../shared" }
+
+[[bin]]
+name = "kfc-parser"
+path = "src/main.rs"

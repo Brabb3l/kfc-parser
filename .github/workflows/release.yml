@@ -1,0 +1,40 @@
+name: Rust
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+concurrency: production
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Tag the repository
+        id: tag
+        run: |
+          $DATE_TAG = Get-Date -Format "vyyyyMMdd"
+          $COMMIT_HASH = git rev-parse --short HEAD
+          $FULL_TAG = "${DATE_TAG}_${COMMIT_HASH}"
+          echo "tag=$FULL_TAG" >> $env:GITHUB_OUTPUT
+          git config user.name "GitHub Actions"
+          git config user.email "github-actions@github.com"
+          git tag -a $FULL_TAG -m "Published version $FULL_TAG" $env:GITHUB_SHA
+          git push origin $FULL_TAG
+      - name: Build
+        run: cargo build --verbose --release
+      - name: Run tests
+        run: cargo test --verbose
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: target/release/kfc-parser.exe
