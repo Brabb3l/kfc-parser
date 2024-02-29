@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::io::{Read, Seek, SeekFrom};
 use shared::io::Reader;
-use crate::crpf::{Crpf, CRPF_MAGIC, CrpfHeader, Ctcb, CTCB_MAGIC, CtcbFieldInfo, CtcbHeader, CtcbNamespace, CtcbTypeEntry, Kbf, KBF_MAGIC, KbfHeader};
+use crate::crpf::{Crpf, CRPF_MAGIC, CRPF_VERSION, CrpfHeader, Ctcb, CTCB_MAGIC, CtcbFieldInfo, CtcbHeader, CtcbNamespace, CtcbTypeEntry, Kbf, KBF_MAGIC, KbfHeader};
 use crate::error::{CrpfError, ParseError};
 use crate::types::{CrpfGuid, Guid, PrimitiveType};
 
@@ -65,7 +65,13 @@ impl CrpfHeader {
             return Err(CrpfError::InvalidMagic(magic).into());
         }
 
-        let unk0 = reader.read_u32()?;
+        let version = reader.read_u32()?;
+
+        // Only support this version for now.
+        if version != CRPF_VERSION {
+            return Err(CrpfError::InvalidVersion(version).into());
+        }
+
         let unk1 = reader.read_u32()?;
         let unk2 = reader.read_u32()?;
 
@@ -84,7 +90,7 @@ impl CrpfHeader {
 
         Ok(Self {
             magic,
-            unk0,
+            version,
             unk1,
             unk2,
             guid_offset,

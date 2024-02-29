@@ -24,6 +24,8 @@ pub enum ParseError {
 pub enum CrpfError {
     #[error("Invalid magic number: {0:X}")]
     InvalidMagic(u32),
+    #[error("Invalid version number: {0:X}")]
+    InvalidVersion(u32),
     #[error("Invalid kbf magic number: {0:X}")]
     InvalidKBFMagic(u32),
     #[error("Invalid CTCB magic number: {0:X}")]

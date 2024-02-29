@@ -6,6 +6,7 @@ use crate::types::{CrpfGuid, Guid, PrimitiveType};
 mod read;
 
 const CRPF_MAGIC: u32 = 0x46505243;
+const CRPF_VERSION: u32 = 2;
 const CTCB_MAGIC: u32 = 0x42435443;
 const KBF_MAGIC: u32 = 0x3046424B;
 
@@ -29,7 +30,7 @@ pub struct Crpf {
 pub struct CrpfHeader {
     pub magic: u32,
 
-    pub unk0: u32, // 2
+    pub version: u32, // 2
     pub unk1: u32, // 0
     pub unk2: u32, // 0
 
