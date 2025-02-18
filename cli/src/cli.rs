@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use clap_derive::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -15,13 +16,13 @@ pub(crate) struct Cli {
 pub enum Commands {
     /// Unpack enshrouded files
     Unpack {
-        /// Input directory (should contain enshrouded.kfc and enshrouded._XXX.dat files)
+        /// Game directory (should contain enshrouded.kfc and enshrouded._XXX.dat files)
         #[arg(short, long)]
-        input: String,
+        game_directory: PathBuf,
         
         /// Output directory
         #[arg(short, long)]
-        output: String,
+        output: PathBuf,
 
         /// Comma separated filter by type (prefixed with t) or guid
         #[arg(short, long, default_value = "*")]
@@ -30,19 +31,23 @@ pub enum Commands {
 
     /// Repack enshrouded files (will backup the origin .kfc to .kfc.bak)
     Repack {
-        /// Input directory containing unpacked files
-        #[arg(short, long)]
-        input: String,
-        
         /// Game directory (should contain enshrouded.kfc and enshrouded._XXX.dat files)
         #[arg(short, long)]
-        game_directory: String,
+        game_directory: PathBuf,
+        
+        /// Input directory containing unpacked files
+        #[arg(short, long)]
+        input: PathBuf,
+        
+        /// Repack the whole file from scratch instead of extending the existing one
+        #[arg(long)]
+        all: bool,
     },
     
     /// Extract type information from enshrouded files
     ExtractTypes {
-        /// Input directory (should contain enshrouded.exe)
+        /// Game directory (should contain enshrouded.exe)
         #[arg(short, long)]
-        input: String,
+        game_directory: PathBuf,
     }
 }

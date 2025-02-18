@@ -2,7 +2,7 @@ use crate::cli::{Cli, Commands};
 use clap::Parser;
 use parser::container::KFCFile;
 use parser::guid::DescriptorGuid;
-use parser::reflection::TypeCollection;
+use parser::reflection::{TypeCollection, TypeParseError};
 use shared::io::{ReadExt, WriterSeekExt};
 use std::collections::HashMap;
 use std::fs::File;
@@ -20,22 +20,23 @@ fn main() -> anyhow::Result<()> {
 
     match cli.commands {
         Commands::Unpack {
-            input,
+            game_directory,
             output,
-            filter
+            filter,
         } => {
-            unpack(input, output, filter, thread_count)?;
+            unpack(game_directory, output, filter, thread_count)?;
         }
         Commands::Repack {
+            game_directory,
             input,
-            game_directory
+            all,
         } => {
-            repack(input, game_directory)?;
+            repack(game_directory, input, all)?;
         }
         Commands::ExtractTypes {
-            input,
+            game_directory
         } => {
-            extract_types(input)?;
+            extract_types(game_directory)?;
         }
     }
 
@@ -43,34 +44,46 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn unpack(
-    input: String,
-    output: String,
+    game_dir: PathBuf,
+    output_dir: PathBuf,
     filter: String,
     thread_count: u8
 ) -> anyhow::Result<()> {
     let start = std::time::Instant::now();
 
-    let enshrouded_dir = PathBuf::from(input);
-    let output_dir = PathBuf::from(output);
-
-    if !enshrouded_dir.exists() {
-        return Err(anyhow::anyhow!("Input directory not found"));
+    if !game_dir.exists() {
+        return Err(anyhow::anyhow!("Game directory not found"));
     }
 
     if !output_dir.exists() {
         return Err(anyhow::anyhow!("Output directory not found"));
     }
 
-    let dir_file = enshrouded_dir.join("enshrouded.kfc");
+    let kfc_file = game_dir.join("enshrouded.kfc");
 
-    if !dir_file.exists() {
+    if !kfc_file.exists() {
         return Err(anyhow::anyhow!("enshrouded.kfc file not found"));
     }
+    
+    println!("Unpacking {} to {}", kfc_file.display(), output_dir.display());
 
     let mut type_collection = TypeCollection::default();
-    type_collection.load_from_path(Path::new("reflection_data.json"))?;
+    
+    match type_collection.load_from_path(Path::new("reflection_data.json")) {
+        Ok(_) => {},
+        Err(TypeParseError::Io(e)) => {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                println!("reflection_data.json not found, attempting to extract types first...");
+                extract_types(game_dir.clone())?;
+                return unpack(game_dir, output_dir, filter, thread_count);
+            }
+            
+            return Err(e.into());
+        }
+        Err(e) => return Err(e.into())
+    }
 
-    let file = File::open(&dir_file)?;
+    let file = File::open(&kfc_file)?;
     let mut reader = BufReader::new(&file);
     let dir = KFCFile::read(&mut reader)?;
 
@@ -143,9 +156,11 @@ fn unpack(
     let guids = Mutex::new(guids.into_iter().collect::<Vec<_>>());
 
     std::thread::scope(|s| {
+        let mut handles = Vec::new();
+        
         for _ in 0..thread_count {
-            s.spawn::<_, anyhow::Result<()>>(|| {
-                let file = File::open(&dir_file).unwrap();
+            let handle = s.spawn::<_, anyhow::Result<()>>(|| {
+                let file = File::open(&kfc_file)?;
                 let mut reader = BufReader::new(&file);
                 let mut data = Vec::with_capacity(1024);
 
@@ -187,8 +202,20 @@ fn unpack(
 
                 Ok(())
             });
+            
+            handles.push(handle);
         }
-    });
+        
+        for handle in handles {
+            match handle.join() {
+                Ok(Ok(())) => {},
+                Ok(Err(e)) => return Err(e),
+                Err(e) => return Err(anyhow::anyhow!("Thread panicked: {:?}", e))
+            }
+        }
+        
+        Ok(())
+    })?;
 
     let end = std::time::Instant::now();
 
@@ -198,15 +225,13 @@ fn unpack(
 }
 
 fn repack(
-    input: String,
-    game_dir: String
+    game_dir: PathBuf,
+    input_dir: PathBuf,
+    all: bool,
 ) -> anyhow::Result<()> {
     let start = std::time::Instant::now();
 
-    let enshrouded_dir = PathBuf::from(game_dir);
-    let input_dir = PathBuf::from(input);
-
-    if !enshrouded_dir.exists() {
+    if !game_dir.exists() {
         return Err(anyhow::anyhow!("Game directory not found"));
     }
 
@@ -214,19 +239,21 @@ fn repack(
         return Err(anyhow::anyhow!("Input directory not found"));
     }
 
-    let dir_file = enshrouded_dir.join("enshrouded.kfc");
-    let dir_bak_file = enshrouded_dir.join("enshrouded.kfc.bak");
+    let kfc_file = game_dir.join("enshrouded.kfc");
+    let kfc_file_bak = game_dir.join("enshrouded.kfc.bak");
 
-    if !dir_file.exists() {
+    if !kfc_file.exists() {
         return Err(anyhow::anyhow!("enshrouded.kfc file not found"));
     }
 
-    if !dir_bak_file.exists() {
-        std::fs::copy(&dir_file, &dir_bak_file)?;
+    if !kfc_file_bak.exists() {
+        println!("Creating backup of enshrouded.kfc");
+        std::fs::copy(&kfc_file, &kfc_file_bak)?;
     }
 
-    if let Err(e) = repack0(&input_dir, &dir_file, &dir_bak_file) {
-        std::fs::copy(&dir_bak_file, &dir_file)?;
+    if let Err(e) = repack0(&input_dir, &game_dir, &kfc_file, &kfc_file_bak, all) {
+        println!("Repacking failed, restoring backup");
+        std::fs::copy(&kfc_file_bak, &kfc_file)?;
         return Err(e);
     }
 
@@ -239,11 +266,28 @@ fn repack(
 
 fn repack0(
     input_dir: &Path,
+    game_dir: &Path,
     dir_file: &Path,
-    dir_bak_file: &Path
+    dir_bak_file: &Path,
+    all: bool
 ) -> anyhow::Result<()> {
+    println!("Repacking {} to {}", input_dir.display(), dir_file.display());
+    
     let mut type_collection = TypeCollection::default();
-    type_collection.load_from_path(Path::new("reflection_data.json"))?;
+
+    match type_collection.load_from_path(Path::new("reflection_data.json")) {
+        Ok(_) => {},
+        Err(TypeParseError::Io(e)) => {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                println!("reflection_data.json not found, attempting to extract types first...");
+                extract_types(game_dir.to_path_buf())?;
+                return repack0(input_dir, game_dir, dir_file, dir_bak_file, all);
+            }
+            
+            return Err(e.into());
+        }
+        Err(e) => return Err(e.into())
+    }
 
     let file = File::open(dir_bak_file)?;
     let mut reader = BufReader::new(&file);
@@ -300,21 +344,22 @@ fn repack0(
     Ok(())
 }
 
-fn extract_types(input: String) -> anyhow::Result<()> {
-    let enshrouded_dir = PathBuf::from(input);
-
-    if !enshrouded_dir.exists() {
+fn extract_types(game_dir: PathBuf) -> anyhow::Result<()> {
+    if !game_dir.exists() {
         return Err(anyhow::anyhow!("Input directory not found"));
     }
 
-    let executable = enshrouded_dir.join("enshrouded.exe");
+    let executable = game_dir.join("enshrouded.exe");
 
     if !executable.exists() {
         return Err(anyhow::anyhow!("enshrouded.exe not found"));
     }
 
     let mut type_collection = TypeCollection::default();
-    type_collection.load_from_executable(executable)?;
+    let count = type_collection.load_from_executable(executable)?;
+    
+    println!("Extracted {} types", count);
+    
     type_collection.dump_to_path(Path::new("reflection_data.json"))?;
 
     Ok(())
