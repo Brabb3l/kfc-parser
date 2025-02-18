@@ -53,28 +53,37 @@ pub fn extract_reflection_data(exe_file: impl AsRef<Path>) -> Result<Vec<TypeInf
 /// 
 /// ```c
 /// struct TypeInfo {
-///     char* type_name_1_ptr;
-///     u64 type_name_1_len;
-///     char* type_name_2_ptr;
-///     u64 type_name_2_len;
+///     char* name_ptr;
+///     u64 name_len;
+///     char* impact_name_ptr;
+///     u64 impact_name_len;
 ///     char* qualified_name_ptr;
 ///     u64 qualified_name_len;
 ///     Namespace* namespace;
-///     struct {
-///         char* referenced_type_name_ptr;
-///         u64 referenced_type_name_len;
-///     }* referenced_type_name;
-///     u32 class_size;
-///     u16 flag_0;
-///     u16 flag_1;
+///     TypeInfo* inner_type;
+///     u32 size;
+///     u16 alignment;
+///     u16 element_alignment;
 ///     u32 field_count;
 ///     u8 primitive_type;
-///     u8 flag_2;
+///     TypeFlags flags;
 ///     u8 padding[2];
-///     u32 hash_1;
-///     u32 hash_2;
+///     u32 qualified_hash;
+///     u32 impact_hash;
 ///     StructFieldInfo* struct_fields[field_count]; // ptr to array of field_count StructFieldInfos
 ///     EnumFieldInfo* enum_fields[field_count]; // ptr to array of field_count EnumFieldInfos
+/// }
+/// 
+/// enum TypeFlags : u8 {
+///     None = 0x00,
+///     HasDS = 0x01,
+///     HasBlobArray = 0x02,
+///     HasBlobString = 0x04,
+///     HasBlobOptional = 0x08,
+///     HasBlobVariant = 0x10,
+///     Unknown_0x20 = 0x20, // shader/gpu related?
+///     Unknown_0x40 = 0x40, // shader/gpu related?
+///     Unknown_0x80 = 0x80, // shader/gpu related?
 /// }
 /// ```
 fn read_type(
