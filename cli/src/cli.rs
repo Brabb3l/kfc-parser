@@ -6,48 +6,43 @@ pub(crate) struct Cli {
     #[command(subcommand)]
     pub commands: Commands,
 
-    /// Input directory (should contain enshrouded.kfc_dir and enshrouded.kfc_data)
-    #[arg(short, long)]
-    pub input: String,
-
-    /// Output directory
-    #[arg(short, long)]
-    pub output: String,
-
-    /// Filter files by type (separated by commas)
-    #[arg(short, long, default_value = "")]
-    pub filter: String,
-
     /// How many threads to use for exporting
-    #[arg(short, long, default_value = "32")]
+    #[arg(short, long, default_value = "8")]
     pub threads: u8,
 }
 
 #[derive(Subcommand)]
 pub enum Commands {
     /// Unpack enshrouded files
-    Unpack,
+    Unpack {
+        /// Input directory (should contain enshrouded.kfc and enshrouded._XXX.dat files)
+        #[arg(short, long)]
+        input: String,
+        
+        /// Output directory
+        #[arg(short, long)]
+        output: String,
 
-    /// Export CRPF files
-    Crpf {
-        /// Export raw CRPF files
-        #[arg(short, long, default_value = "false")]
-        bin: bool,
+        /// Comma separated filter by type (prefixed with t) or guid
+        #[arg(short, long, default_value = "*")]
+        filter: String,
+    },
 
-        /// Export CRPF debug files
-        #[arg(short, long, default_value = "false")]
-        debug: bool,
-
-        /// Export CRPF-KBF files
-        #[arg(short, long, default_value = "false")]
-        kbf: bool,
-
-        /// Export parsed CRPF files
-        #[arg(short, long, default_value = "false")]
-        parsed: bool,
-
-        /// Export linked content files
-        #[arg(short, long, default_value = "false")]
-        content: bool,
+    /// Repack enshrouded files (will backup the origin .kfc to .kfc.bak)
+    Repack {
+        /// Input directory containing unpacked files
+        #[arg(short, long)]
+        input: String,
+        
+        /// Game directory (should contain enshrouded.kfc and enshrouded._XXX.dat files)
+        #[arg(short, long)]
+        game_directory: String,
+    },
+    
+    /// Extract type information from enshrouded files
+    ExtractTypes {
+        /// Input directory (should contain enshrouded.exe)
+        #[arg(short, long)]
+        input: String,
     }
 }

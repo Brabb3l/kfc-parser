@@ -1,17 +1,29 @@
 # KFC Parser (WIP)
 
-Parser for exporting/unpacking Enshrouded game files.
+Parser for unpacking and repacking Enshrouded game files.
+
+## Features
+
+- Capable of unpacking and repacking (1:1) all types of descriptor files.
+- Extracting reflection data from the enshrouded executable. (Only windows x64)
 
 ## Usage
 
-To unpack supported files, use the `unpack` command.
+To unpack game files, use the `unpack` command.
 
 ```sh
-kfc-parser.exe --input "path/to/enshrouded" --output "path/to/output" unpack
+kfc-parser.exe unpack [OPTIONS]
 ```
 
-To export CRPF files, use the `crpf` command.
+To repack unpacked files, use the `repack` command.
 
 ```sh
-kfc-parser.exe --input "path/to/enshrouded" --output "path/to/output" crpf [OPTIONS]
+kfc-parser.exe repack [OPTIONS]
 ```
+
+## TODO
+
+- Implement unpacking/repacking of blob files such as images, sounds, etc.
+- Implement adding new files to the game archives.
+- Provide a static and dynamic library for the parser.
+- Use a scripting language such as lua to modify game files and also resolve collisions between mods.

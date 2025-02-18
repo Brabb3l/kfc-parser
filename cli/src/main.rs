@@ -1,27 +1,57 @@
-use std::fs::File;
-use std::path::PathBuf;
+use crate::cli::{Cli, Commands};
 use clap::Parser;
-use parser::container::KFCDir;
-use shared::io::Reader;
-use crate::cli::Cli;
-use crate::exporter::{KFCMultiExporter, TaskMode};
+use parser::container::KFCFile;
+use parser::guid::DescriptorGuid;
+use parser::reflection::TypeCollection;
+use shared::io::{ReadExt, WriterSeekExt};
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufReader, BufWriter, Seek, SeekFrom, Write};
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use std::sync::Mutex;
+use walkdir::WalkDir;
 
-pub mod exporter;
 mod cli;
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    let thread_count = cli.threads;
 
-    let types: Vec<String> = if cli.filter.is_empty() {
-        Vec::new()
-    } else {
-        cli.filter.split(',').map(|s| s.trim().to_string()).collect()
-    };
+    match cli.commands {
+        Commands::Unpack {
+            input,
+            output,
+            filter
+        } => {
+            unpack(input, output, filter, thread_count)?;
+        }
+        Commands::Repack {
+            input,
+            game_directory
+        } => {
+            repack(input, game_directory)?;
+        }
+        Commands::ExtractTypes {
+            input,
+        } => {
+            extract_types(input)?;
+        }
+    }
 
-    let threads = cli.threads as u32;
+    Ok(())
+}
 
-    let enshrouded_dir = PathBuf::from(cli.input);
-    let output_dir = PathBuf::from(&cli.output);
+fn unpack(
+    input: String,
+    output: String,
+    filter: String,
+    thread_count: u8
+) -> anyhow::Result<()> {
+    let start = std::time::Instant::now();
+
+    let enshrouded_dir = PathBuf::from(input);
+    let output_dir = PathBuf::from(output);
 
     if !enshrouded_dir.exists() {
         return Err(anyhow::anyhow!("Input directory not found"));
@@ -31,61 +61,262 @@ fn main() -> anyhow::Result<()> {
         return Err(anyhow::anyhow!("Output directory not found"));
     }
 
-    let dir_file = enshrouded_dir.join("enshrouded.kfc_dir");
-    let data_file = enshrouded_dir.join("enshrouded.kfc_data");
+    let dir_file = enshrouded_dir.join("enshrouded.kfc");
 
     if !dir_file.exists() {
-        return Err(anyhow::anyhow!("enshrouded.kfc_dir file not found"));
+        return Err(anyhow::anyhow!("enshrouded.kfc file not found"));
     }
 
-    if !data_file.exists() {
-        return Err(anyhow::anyhow!("enshrouded.kfc_data not found"));
+    let mut type_collection = TypeCollection::default();
+    type_collection.load_from_path(Path::new("reflection_data.json"))?;
+
+    let file = File::open(&dir_file)?;
+    let mut reader = BufReader::new(&file);
+    let dir = KFCFile::read(&mut reader)?;
+
+    enum Filter<'a> {
+        All,
+        ByType(&'a str),
+        ByGuid(DescriptorGuid)
     }
 
-    let dir_file = File::open(dir_file)?;
-    let dir = KFCDir::read(&mut Reader::new(dir_file))?;
+    let mut filters = Vec::new();
 
-    match cli.commands {
-        cli::Commands::Unpack => {
-            let mut exporter = KFCMultiExporter::new(dir, data_file, threads);
+    for filter in filter.split(',') {
+        let filter = filter.trim();
 
-            exporter.export(
-                &cli.output,
-                TaskMode::TRY_UNPACK,
-                types
-            )?;
-            exporter.join();
+        if filter.is_empty() {
+            continue;
         }
-        cli::Commands::Crpf { bin, debug, kbf, parsed, content } => {
-            let mut mode = TaskMode::NONE;
-            if bin { mode |= TaskMode::EXPORT_BIN_DATA; }
-            if debug { mode |= TaskMode::EXPORT_CRPF_DEBUG; }
-            if kbf { mode |= TaskMode::EXPORT_CRPF_KBF; }
-            if parsed { mode |= TaskMode::EXPORT_CRPF_PLAIN; }
-            if content { mode |= TaskMode::EXPORT_CRPF; }
 
-            let mut exporter = KFCMultiExporter::new(dir, data_file, threads);
-
-            exporter.export(
-                &cli.output,
-                mode,
-                types
-            )?;
-            exporter.join();
+        if filter == "*" {
+            filters.clear();
+            filters.push(Filter::All);
+            break;
+        } else if let Some(ty) = filter.strip_prefix('t') {
+            filters.push(Filter::ByType(ty));
+        } else {
+            match DescriptorGuid::from_str(filter) {
+                Ok(guid) => filters.push(Filter::ByGuid(guid)),
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Invalid GUID: {}", e));
+                }
+            }
         }
     }
 
-    // let mut exporter = test::KFCMultiExporter2::new(dir, data_file, 32);
-    //
-    // exporter.export(test::TaskMode::TRY_UNPACK)?;
-    // let state = exporter.join();
-    //
-    // for (name, (count, min_c, max_c)) in state.type_names.iter() {
-    //     println!("{}: {} {} {}", name, count, min_c, max_c);
-    // }
+    let mut guids = HashMap::new();
 
+    for filter in &filters {
+        match filter {
+            Filter::All => {
+                for (guid, link) in dir.descriptor_guids
+                    .iter()
+                    .zip(dir.descriptor_links.iter())
+                {
+                    guids.insert(guid, link);
+                }
+            }
+            Filter::ByType(type_name) => {
+                let type_hash = type_collection.get_type_by_qualified_name(type_name)
+                    .ok_or_else(|| anyhow::anyhow!("Type not found: {}", type_name))?
+                    .qualified_hash;
 
-    println!("Done");
+                for (guid, link) in dir.descriptor_guids
+                    .iter()
+                    .zip(dir.descriptor_links.iter())
+                {
+                    if type_hash == guid.type_hash {
+                        guids.insert(guid, link);
+                    }
+                }
+            }
+            Filter::ByGuid(guid) => {
+                let link = dir.get_descriptor_link(guid)
+                    .ok_or_else(|| anyhow::anyhow!("GUID not found: {}", guid))?;
+
+                guids.insert(guid, link);
+            }
+        }
+    }
+
+    let guids = Mutex::new(guids.into_iter().collect::<Vec<_>>());
+
+    std::thread::scope(|s| {
+        for _ in 0..thread_count {
+            s.spawn::<_, anyhow::Result<()>>(|| {
+                let file = File::open(&dir_file).unwrap();
+                let mut reader = BufReader::new(&file);
+                let mut data = Vec::with_capacity(1024);
+
+                loop {
+                    let (guid, link) = {
+                        let mut lock = guids.lock().unwrap();
+
+                        if let Some(entry) = lock.pop() {
+                            entry
+                        } else {
+                            break;
+                        }
+                    };
+
+                    if data.capacity() < link.size as usize {
+                        data.reserve(link.size as usize - data.len());
+                    }
+
+                    data.clear();
+                    reader.seek(SeekFrom::Start(dir.descriptor_locations[0].offset as u64 + link.offset as u64))?;
+                    reader.read_exact_n(link.size as usize, &mut data)?;
+
+                    let descriptor = type_collection.deserialize(guid.type_hash, &data)?;
+
+                    let type_info = type_collection.get_type_by_qualified_hash(guid.type_hash)
+                        .ok_or_else(|| anyhow::anyhow!("Type not found: {:x}", guid.type_hash))?;
+                    let type_name: &str = &type_info.name;
+                    let parent = output_dir.join(type_name);
+
+                    if !parent.exists() {
+                        std::fs::create_dir_all(&parent)?;
+                    }
+
+                    let path = parent.join(format!("{}.json", guid));
+                    let file = File::create(&path)?;
+                    let writer = BufWriter::new(file);
+                    serde_json::to_writer_pretty(writer, &descriptor)?;
+                }
+
+                Ok(())
+            });
+        }
+    });
+
+    let end = std::time::Instant::now();
+
+    println!("Unpacking took {:?}", end - start);
 
     Ok(())
 }
+
+fn repack(
+    input: String,
+    game_dir: String
+) -> anyhow::Result<()> {
+    let start = std::time::Instant::now();
+
+    let enshrouded_dir = PathBuf::from(game_dir);
+    let input_dir = PathBuf::from(input);
+
+    if !enshrouded_dir.exists() {
+        return Err(anyhow::anyhow!("Game directory not found"));
+    }
+
+    if !input_dir.exists() {
+        return Err(anyhow::anyhow!("Input directory not found"));
+    }
+
+    let dir_file = enshrouded_dir.join("enshrouded.kfc");
+    let dir_bak_file = enshrouded_dir.join("enshrouded.kfc.bak");
+
+    if !dir_file.exists() {
+        return Err(anyhow::anyhow!("enshrouded.kfc file not found"));
+    }
+
+    if !dir_bak_file.exists() {
+        std::fs::copy(&dir_file, &dir_bak_file)?;
+    }
+
+    if let Err(e) = repack0(&input_dir, &dir_file, &dir_bak_file) {
+        std::fs::copy(&dir_bak_file, &dir_file)?;
+        return Err(e);
+    }
+
+    let end = std::time::Instant::now();
+
+    println!("Repacking took {:?}", end - start);
+
+    Ok(())
+}
+
+fn repack0(
+    input_dir: &Path,
+    dir_file: &Path,
+    dir_bak_file: &Path
+) -> anyhow::Result<()> {
+    let mut type_collection = TypeCollection::default();
+    type_collection.load_from_path(Path::new("reflection_data.json"))?;
+
+    let file = File::open(dir_bak_file)?;
+    let mut reader = BufReader::new(&file);
+    let mut dir = KFCFile::read(&mut reader)?;
+
+    let files = WalkDir::new(input_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .filter(|e| e.path().extension().map(|x| x == "json").unwrap_or(false))
+        .map(|e| e.path().to_path_buf())
+        .collect::<Vec<_>>();
+
+    let mut writer = BufWriter::new(File::create(dir_file)?);
+    dir.write(&mut writer)?;
+
+    let base_offset = writer.stream_position()?;
+
+    let mut data: Vec<u8> = Vec::with_capacity(1024);
+    let mut guids = dir.descriptor_guids
+        .iter()
+        .zip(dir.descriptor_links.iter_mut())
+        .collect::<std::collections::HashMap<_, _>>();
+
+    for file in files {
+        let offset = writer.stream_position()? - base_offset;
+
+        let json = std::fs::read(&file)?;
+        let descriptor: serde_json::Value = serde_json::from_slice(&json)?;
+
+        let guid = DescriptorGuid::from_str(file.file_stem().unwrap().to_str().unwrap())
+            .map_err(|e| anyhow::anyhow!("Invalid GUID: {}", e))?;
+
+        data.clear();
+        type_collection.serialize_into(guid.type_hash, &descriptor, &mut data)?;
+
+        let link = guids.get_mut(&guid)
+            .ok_or_else(|| anyhow::anyhow!("GUID not found: {}", guid))?;
+
+        link.offset = offset as u32;
+        link.size = data.len() as u32;
+
+        writer.write_all(&data)?;
+        writer.align(16)?;
+    }
+
+    let size = writer.stream_position()? - base_offset;
+    dir.descriptor_locations[0].size = size as u32;
+    dir.descriptor_locations[0].offset = base_offset as u32;
+
+    writer.seek(SeekFrom::Start(0))?;
+    dir.write(&mut writer)?;
+
+    Ok(())
+}
+
+fn extract_types(input: String) -> anyhow::Result<()> {
+    let enshrouded_dir = PathBuf::from(input);
+
+    if !enshrouded_dir.exists() {
+        return Err(anyhow::anyhow!("Input directory not found"));
+    }
+
+    let executable = enshrouded_dir.join("enshrouded.exe");
+
+    if !executable.exists() {
+        return Err(anyhow::anyhow!("enshrouded.exe not found"));
+    }
+
+    let mut type_collection = TypeCollection::default();
+    type_collection.load_from_executable(executable)?;
+    type_collection.dump_to_path(Path::new("reflection_data.json"))?;
+
+    Ok(())
+}
+
