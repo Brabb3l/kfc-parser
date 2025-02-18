@@ -49,5 +49,12 @@ pub enum Commands {
         /// Game directory (should contain enshrouded.exe)
         #[arg(short, long)]
         game_directory: PathBuf,
-    }
+    },
+    
+    /// Restore the original enshrouded files
+    Restore {
+        /// Game directory (should contain enshrouded.kfc.bak)
+        #[arg(short, long)]
+        game_directory: PathBuf,
+    },
 }
