@@ -1,4 +1,70 @@
 use serde::{Deserialize, Serialize};
+use std::hash::Hash;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TypeInfo {
+    pub name: String,
+    pub impact_name: String,
+    pub qualified_name: String,
+    pub namespace: Vec<String>,
+    pub inner_type: Option<TypeRef>,
+    pub size: u32,
+    pub alignment: u16,
+    pub element_alignment: u16,
+    pub field_count: u32,
+    pub primitive_type: PrimitiveType,
+    pub flags: TypeFlags,
+    pub qualified_hash: u32,
+    pub internal_hash: u32,
+    pub struct_fields: Vec<StructFieldInfo>,
+    pub enum_fields: Vec<EnumFieldInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<serde_json::Value>,
+    pub attributes: Vec<Attribute>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StructFieldInfo {
+    pub name: String,
+    pub r#type: TypeRef,
+    pub data_offset: u64,
+    pub attributes: Vec<Attribute>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Attribute {
+    pub name: String,
+    pub namespace: Vec<String>,
+    pub r#type: Option<TypeRef>,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnumFieldInfo {
+    pub name: String,
+    pub value: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TypeRef {
+    pub name: String,
+    pub hash: u32,
+}
+
+bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+    pub struct TypeFlags: u8 {
+        const NONE = 0x00;
+        const HAS_DS = 0x01;
+        const HAS_BLOB_ARRAY = 0x02;
+        const HAS_BLOB_STRING = 0x04;
+        const HAS_BLOB_OPTIONAL = 0x08;
+        const HAS_BLOB_VARIANT = 0x10;
+        const IS_GPU_UNIFORM = 0x20;
+        const IS_GPU_STORAGE = 0x40;
+        const IS_GPU_CONSTANT = 0x80;
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[derive(Serialize, Deserialize)]
@@ -108,51 +174,3 @@ impl PrimitiveType {
         }
     }
 }
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TypeInfo {
-    pub name: String,
-    pub impact_name: String,
-    pub qualified_name: String,
-    pub namespace: Vec<String>,
-    pub inner_type: Option<TypeRef>,
-    pub size: u32,
-    pub alignment: u16,
-    pub element_alignment: u16,
-    pub field_count: u32,
-    pub primitive_type: PrimitiveType,
-    pub flags: u8,
-    pub qualified_hash: u32,
-    pub impact_hash: u32,
-    pub struct_fields: Vec<StructFieldInfo>,
-    pub enum_fields: Vec<EnumFieldInfo>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct StructFieldInfo {
-    pub name: String,
-    pub r#type: TypeRef,
-    pub data_offset: u64,
-    pub attributes: Vec<StructFieldAttribute>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct StructFieldAttribute {
-    pub name: String,
-    pub namespace: Vec<String>,
-    pub r#type: Option<TypeRef>,
-    pub value: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct EnumFieldInfo {
-    pub name: String,
-    pub value: u64,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TypeRef {
-    pub name: String,
-    pub hash: u32,
-}
-

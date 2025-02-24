@@ -57,4 +57,41 @@ pub enum Commands {
         #[arg(short, long)]
         game_directory: PathBuf,
     },
+    
+    /// CLI for impact files
+    #[command(subcommand)]
+    Impact(CommandImpact),
+}
+
+#[derive(Subcommand)]
+pub enum CommandImpact {
+    /// Creates a descriptor file from a disassembled impact program
+    Assemble {
+        /// The shared name of the impact program files
+        /// The files should be named as follows:
+        /// - `file_name.impact`  
+        /// - `file_name.shutdown.impact`  
+        /// - `file_name.data.json`
+        #[arg(short, long, verbatim_doc_comment)]
+        input: PathBuf,
+        
+        /// An optional file name for the new impact program descriptor (will fallback to file_name.json)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        
+        /// An optional guid to use for the new impact program descriptor
+        #[arg(short, long)]
+        guid: Option<String>,
+    },
+    
+    /// Disassembles an impact program from a descriptor file into a more human-readable format
+    Disassemble {
+        /// The impact program descriptor file
+        #[arg(short, long)]
+        input: PathBuf,
+        
+        /// The output directory for the disassembled impact program (will fallback to input's directory)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
 }

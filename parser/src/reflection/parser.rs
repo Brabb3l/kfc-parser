@@ -1,13 +1,16 @@
-use std::io::Cursor;
+use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use shared::io::ReadExt;
 
-use super::ReflectionParseError;
 use super::pe_file::{PEFile, ReadPEExt};
 use super::types::*;
+use super::{ReflectionParseError, TypeCollection};
 
-pub fn extract_reflection_data(exe_file: impl AsRef<Path>) -> Result<Vec<TypeInfo>, ReflectionParseError> {
+pub fn extract_reflection_data(
+    exe_file: impl AsRef<Path>,
+    deserialize_default_values: bool,
+) -> Result<Vec<TypeInfo>, ReflectionParseError> {
     let pe_file = PEFile::load_from_file(exe_file)?;
     let data_section_offset = pe_file.offset_to_section(".data")
         .ok_or(ReflectionParseError::MissingDataSection)?;
@@ -35,6 +38,7 @@ pub fn extract_reflection_data(exe_file: impl AsRef<Path>) -> Result<Vec<TypeInf
 
     let mut cursor = pe_file.get_cursor_at(offset)?;
     let mut table_cursor = cursor.read_pointee(&pe_file)?;
+    let start_position = table_cursor.stream_position()?;
     let table_count = cursor.read_u64()?;
 
     let mut table = Vec::with_capacity(table_count as usize);
@@ -44,6 +48,32 @@ pub fn extract_reflection_data(exe_file: impl AsRef<Path>) -> Result<Vec<TypeInf
         let ty = read_type(&mut type_cursor, &pe_file, false)?;
 
         table.push(ty);
+    }
+    
+    if deserialize_default_values {
+        table_cursor.seek(SeekFrom::Start(start_position))?;
+        
+        let mut type_collection = TypeCollection::default();
+        let mut values = Vec::with_capacity(table_count as usize);
+        
+        type_collection.extend(table);
+        
+        for _ in 0..table_count {
+            let mut type_cursor = table_cursor.read_pointee(&pe_file)?;
+            let value = read_default_value(
+                &mut type_cursor,
+                &pe_file,
+                &type_collection,
+            )?;
+            
+            values.push(value);
+        }
+        
+        table = type_collection.into_inner().unwrap();
+        
+        for (ty, value) in table.iter_mut().zip(values) {
+            ty.default_value = value;
+        }
     }
 
     Ok(table)
@@ -68,10 +98,15 @@ pub fn extract_reflection_data(exe_file: impl AsRef<Path>) -> Result<Vec<TypeInf
 ///     u8 primitive_type;
 ///     TypeFlags flags;
 ///     u8 padding[2];
-///     u32 qualified_hash;
-///     u32 impact_hash;
+///     u32 qualified_hash; // @0x50
+///     u32 internal_hash;
 ///     StructFieldInfo* struct_fields[field_count]; // ptr to array of field_count StructFieldInfos
 ///     EnumFieldInfo* enum_fields[field_count]; // ptr to array of field_count EnumFieldInfos
+///     TypeInfo** variant_type; // contains as inner_type
+///     u8* default_value_ptr; // @0x70
+///     u64 default_value_len;
+///     Attribute* attributes_ptr;
+///     u64 attributes_count;
 /// }
 /// 
 /// enum TypeFlags : u8 {
@@ -108,32 +143,43 @@ fn read_type(
     let element_alignment = cursor.read_u16()?;
     let field_count = cursor.read_u32()?;
     let primitive_type = PrimitiveType::from_u8(cursor.read_u8()?);
-    let flags = cursor.read_u8()?;
+    let flags = TypeFlags::from_bits_truncate(cursor.read_u8()?);
     cursor.padding(2)?;
     let qualified_hash = cursor.read_u32()?;
-    let impact_hash = cursor.read_u32()?;
+    let internal_hash = cursor.read_u32()?;
 
-    let struct_fields = if !skip_fields {
-        cursor.read_pointee_opt(pe_file)?
+    let (struct_fields, enum_fields) = if !skip_fields {
+        let struct_fields = cursor.read_pointee_opt(pe_file)?
             .map(|mut cursor| {
                 read_struct_fields(&mut cursor, field_count as u64, pe_file)
             })
             .transpose()?
-            .unwrap_or_else(Vec::new)
-    } else {
-        Vec::new()
-    };
-
-    let enum_fields = if !skip_fields {
-        cursor.read_pointee_opt(pe_file)?
+            .unwrap_or_else(Vec::new);
+        
+        let enum_fields = cursor.read_pointee_opt(pe_file)?
             .map(|mut cursor| {
                 read_enum_fields(&mut cursor, field_count as u64, pe_file)
             })
             .transpose()?
-            .unwrap_or_else(Vec::new)
+            .unwrap_or_else(Vec::new);
+
+        (struct_fields, enum_fields)
     } else {
-        Vec::new()
+        cursor.seek_relative(16)?;
+        (Vec::new(), Vec::new())
     };
+
+    cursor.seek_relative(8)?; // skip variant_type
+    cursor.seek_relative(8)?; // skip default_value_ptr
+    cursor.seek_relative(8)?; // skip default_value_len
+    
+    let attributes_cursor = cursor.read_pointee_opt(pe_file)?;
+    let attributes_count = cursor.read_u64()?;
+    let attributes = attributes_cursor.map(|mut cursor| {
+        read_attributes(&mut cursor, attributes_count, pe_file)
+    })
+        .transpose()?
+        .unwrap_or_else(Vec::new);
 
     Ok(TypeInfo {
         name,
@@ -148,10 +194,47 @@ fn read_type(
         primitive_type,
         flags,
         qualified_hash,
-        impact_hash,
+        internal_hash,
         struct_fields,
         enum_fields,
+        default_value: None,
+        attributes,
     })
+}
+
+fn read_default_value(
+    cursor: &mut Cursor<&[u8]>,
+    pe_file: &PEFile,
+    type_collection: &TypeCollection,
+) -> std::io::Result<Option<serde_json::Value>> {
+    cursor.seek_relative(0x50)?; // skip to qualified_hash
+    let qualified_hash = cursor.read_u32()?;
+    
+    cursor.seek_relative(0x20 - 0x04)?; // skip to default_value_ptr
+    
+    let default_value_cursor = cursor.read_pointee_opt(pe_file)?;
+    let default_value_len = cursor.read_u64()?;
+    
+    if let Some(mut cursor) = default_value_cursor {
+        let type_info = type_collection.get_type_by_qualified_hash(qualified_hash)
+            .ok_or_else(|| std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Failed to find type by hash: {}", qualified_hash)
+            ))?;
+        
+        let mut value = vec![0; default_value_len as usize];
+        cursor.read_exact(&mut value)?;
+        
+        let value = type_collection.deserialize(type_info, &value)
+            .map_err(|e| std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Failed to deserialize default value: {}", e)
+            ))?;
+
+        Ok(Some(value))
+    } else {
+        Ok(None)
+    }
 }
 
 fn read_struct_fields(
@@ -176,8 +259,8 @@ fn read_struct_fields(
 ///     u64 name_len;
 ///     TypeInfo* type;
 ///     u64 data_offset;
-///     StructFieldAttribute* attributes;
-///     u64 attribute_count;
+///     Attribute* attributes;
+///     u64 attributes_count;
 /// }
 /// ```
 fn read_struct_field(
@@ -250,7 +333,7 @@ fn read_attributes(
     cursor: &mut Cursor<&[u8]>,
     count: u64,
     pe_file: &PEFile,
-) -> std::io::Result<Vec<StructFieldAttribute>> {
+) -> std::io::Result<Vec<Attribute>> {
     let mut attributes = Vec::with_capacity(count as usize);
 
     for _ in 0..count {
@@ -263,13 +346,13 @@ fn read_attributes(
 /// # Layout
 /// 
 /// ```c
-/// struct StructFieldAttribute {
-///     StructFieldAttributeData* data;
+/// struct Attribute {
+///     AttributeInfo* info;
 ///     char* value_ptr;
 ///     u64 value_len;
 /// }
 /// 
-/// struct StructFieldAttributeData {
+/// struct AttributeInfo {
 ///     Namespace* namespace;
 ///     char* name_ptr;
 ///     u64 name_len;
@@ -279,7 +362,7 @@ fn read_attributes(
 fn read_attribute(
     cursor: &mut Cursor<&[u8]>,
     pe_file: &PEFile,
-) -> std::io::Result<StructFieldAttribute> {
+) -> std::io::Result<Attribute> {
     let mut data_cursor = cursor.read_pointee(pe_file)?;
     let value = cursor.read_pointee(pe_file)?
         .read_string(cursor.read_u64()? as usize)?;
@@ -290,7 +373,7 @@ fn read_attribute(
         .read_string(data_cursor.read_u64()? as usize)?;
     let r#type = read_type_ref(&mut data_cursor, pe_file)?;
 
-    Ok(StructFieldAttribute {
+    Ok(Attribute {
         name,
         namespace,
         r#type,

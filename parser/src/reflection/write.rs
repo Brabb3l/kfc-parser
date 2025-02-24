@@ -4,46 +4,65 @@ use std::str::FromStr;
 use serde_json::Value as JsonValue;
 use shared::io::WriteExt;
 
-use crate::guid::{BlobGuid, DescriptorGuid};
+use crate::guid::BlobGuid;
 
 use super::types::*;
 use super::{TypeCollection, WriteError};
 
 impl TypeCollection {
-    pub fn serialize_into(
+    pub fn serialize_into_by_hash(
         &self,
         type_hash: u32,
-        node: &JsonValue,
+        value: &JsonValue,
+        dst: &mut Vec<u8>
+    ) -> Result<(), WriteError> {
+        let type_info = self.get_type_by_qualified_hash(type_hash)
+            .ok_or(WriteError::UnknownType(type_hash))?;
+
+        self.serialize_into(type_info, value, dst)
+    }
+    
+    pub fn serialize_by_hash(
+        &self,
+        type_info: u32,
+        value: &JsonValue
+    ) -> Result<Vec<u8>, WriteError> {
+        let type_entry = self.get_type_by_qualified_hash(type_info)
+            .ok_or(WriteError::UnknownType(type_info))?;
+
+        self.serialize(type_entry, value)
+    }
+    
+    pub fn serialize_into(
+        &self,
+        type_info: &TypeInfo,
+        value: &JsonValue,
         dst: &mut Vec<u8>
     ) -> Result<(), WriteError> {
         let mut writer = Cursor::new(dst);
-        let type_entry = self.get_type_by_qualified_hash(type_hash)
-            .ok_or(WriteError::UnknownType(type_hash))?;
-
-        let mut blob_offset = type_entry.size as u64;
-        self.write_type(type_entry, &mut writer, node, &mut blob_offset, 0)?;
+        let mut blob_offset = type_info.size as u64;
+        
+        self.write_type(type_info, &mut writer, value, &mut blob_offset, 0)?;
 
         Ok(())
     }
-    
+
     pub fn serialize(
         &self,
-        type_hash: u32,
-        node: &JsonValue
+        type_info: &TypeInfo,
+        value: &JsonValue
     ) -> Result<Vec<u8>, WriteError> {
         let mut writer = Cursor::new(Vec::new());
-        let type_entry = self.get_type_by_qualified_hash(type_hash)
-            .ok_or(WriteError::UnknownType(type_hash))?;
-
-        let mut blob_offset = type_entry.size as u64;
-        self.write_type(type_entry, &mut writer, node, &mut blob_offset, 0)?;
+        let mut blob_offset = type_info.size as u64;
+        
+        self.write_type(type_info, &mut writer, value, &mut blob_offset, 0)?;
 
         Ok(writer.into_inner())
     }
 
     fn write_type<W: Write + Seek>(
         &self,
-        type_entry: &TypeInfo,
+        type_info: &TypeInfo,
         writer: &mut W,
         value: &JsonValue,
         blob_offset: &mut u64,
@@ -51,7 +70,7 @@ impl TypeCollection {
     ) -> Result<(), WriteError> {
         writer.seek(SeekFrom::Start(base_offset))?;
 
-        match &type_entry.primitive_type {
+        match &type_info.primitive_type {
             PrimitiveType::None => {}
             PrimitiveType::Bool => {
                 return if let Some(value) = value.as_bool() {
@@ -210,8 +229,8 @@ impl TypeCollection {
             }
             PrimitiveType::Enum => {
                 if let Some(value) = value.as_str() {
-                    let enum_value = self.resolve_enum_value(type_entry, value)?;
-                    let enum_value_type = self.get_inner_type(type_entry);
+                    let enum_value = self.resolve_enum_value(type_info, value)?;
+                    let enum_value_type = self.get_inner_type(type_info);
 
                     match enum_value_type.primitive_type {
                         PrimitiveType::SInt8 => writer.write_i8(enum_value as i8)?,
@@ -232,19 +251,19 @@ impl TypeCollection {
                 }
             }
             PrimitiveType::Bitmask8 => {
-                writer.write_u8(self.parse_bitmask_value(type_entry, value)? as u8)?;
+                writer.write_u8(self.parse_bitmask_value(type_info, value)? as u8)?;
             }
             PrimitiveType::Bitmask16 => {
-                writer.write_u16(self.parse_bitmask_value(type_entry, value)? as u16)?;
+                writer.write_u16(self.parse_bitmask_value(type_info, value)? as u16)?;
             }
             PrimitiveType::Bitmask32 => {
-                writer.write_u32(self.parse_bitmask_value(type_entry, value)? as u32)?;
+                writer.write_u32(self.parse_bitmask_value(type_info, value)? as u32)?;
             }
             PrimitiveType::Bitmask64 => {
-                writer.write_u64(self.parse_bitmask_value(type_entry, value)?)?;
+                writer.write_u64(self.parse_bitmask_value(type_info, value)?)?;
             }
             PrimitiveType::Typedef => {
-                let inner_type = self.get_inner_type(type_entry);
+                let inner_type = self.get_inner_type(type_info);
 
                 return Self::write_type(
                     self,
@@ -257,7 +276,7 @@ impl TypeCollection {
             }
             PrimitiveType::Struct => {
                 if let JsonValue::Object(fields) = value {
-                    if let Some(parent_type) = self.get_inner_type_opt(type_entry) {
+                    if let Some(parent_type) = self.get_inner_type_opt(type_info) {
                         Self::write_type(
                             self,
                             parent_type,
@@ -268,7 +287,7 @@ impl TypeCollection {
                         )?;
                     }
 
-                    for field in &type_entry.struct_fields {
+                    for field in &type_info.struct_fields {
                         let (_, field_value) = fields.iter()
                             .find(|(name, _)| name == &&field.name)
                             .ok_or_else(|| WriteError::MissingField(field.name.clone()))?;
@@ -293,7 +312,7 @@ impl TypeCollection {
                 }
             }
             PrimitiveType::StaticArray => {
-                let component_type = self.get_inner_type(type_entry);
+                let component_type = self.get_inner_type(type_info);
 
                 if let JsonValue::Array(values) = value {
                     for (i, value) in values.iter().enumerate() {
@@ -320,7 +339,7 @@ impl TypeCollection {
             PrimitiveType::DsOptional => unreachable!(),
             PrimitiveType::DsVariant => unreachable!(),
             PrimitiveType::BlobArray => {
-                let component_type = self.get_inner_type(type_entry);
+                let component_type = self.get_inner_type(type_info);
 
                 if let JsonValue::Array(values) = value {
                     let stream_pos = writer.stream_position()?;
@@ -387,7 +406,7 @@ impl TypeCollection {
                 }
             }
             PrimitiveType::BlobOptional => {
-                let component_type = self.get_inner_type(type_entry);
+                let component_type = self.get_inner_type(type_info);
 
                 if !value.is_null() {
                     let stream_pos = writer.stream_position()?;
@@ -465,9 +484,8 @@ impl TypeCollection {
             }
             PrimitiveType::ObjectReference => {
                 if let Some(value) = value.as_str() {
-                    DescriptorGuid::from_str(value)
+                    BlobGuid::from_str(value)
                         .map_err(WriteError::MalformedBlobGuid)?
-                        .as_blob_guid()
                         .write(writer)?;
                 } else {
                     return Err(WriteError::IncompatibleType {
@@ -491,7 +509,7 @@ impl TypeCollection {
         }
 
         // fill remaining space with zeroes
-        let end_offset = base_offset + type_entry.size as u64;
+        let end_offset = base_offset + type_info.size as u64;
 
         if writer.stream_position()? < end_offset {
             writer.seek(SeekFrom::Start(end_offset - 1))?;

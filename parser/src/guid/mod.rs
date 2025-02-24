@@ -2,12 +2,10 @@ mod read;
 mod write;
 
 use std::fmt::{Debug, Display};
-use std::io::{Cursor, Write};
 use std::num::ParseIntError;
 use std::str::FromStr;
-
+use serde::Deserialize;
 use shared::hash::{crc64, fnv};
-use shared::io::WriteExt;
 
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BlobGuid {
@@ -21,6 +19,24 @@ impl BlobGuid {
     };
     
     pub fn new(data: [u8; 16]) -> Self {
+        Self {
+            data
+        }
+    }
+    
+    pub fn from_parts(
+        hash0: u32,
+        hash1: u32,
+        hash2: u32,
+        size: u32,
+    ) -> Self {
+        let mut data = [0; 16];
+        
+        data[0..4].copy_from_slice(&size.to_le_bytes());
+        data[4..8].copy_from_slice(&hash0.to_le_bytes());
+        data[8..12].copy_from_slice(&hash1.to_le_bytes());
+        data[12..16].copy_from_slice(&hash2.to_le_bytes());
+        
         Self {
             data
         }
@@ -71,6 +87,25 @@ impl FromStr for BlobGuid {
         Ok(BlobGuid {
             data,
         })
+    }
+}
+
+impl<'de> Deserialize<'de> for BlobGuid {
+    fn deserialize<D>(deserializer: D) -> Result<BlobGuid, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        BlobGuid::from_str(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+impl serde::Serialize for BlobGuid {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.to_string().serialize(serializer)
     }
 }
 
@@ -178,6 +213,25 @@ impl FromStr for DescriptorGuid {
             part_number,
             reserved: 0
         })
+    }
+}
+
+impl<'de> Deserialize<'de> for DescriptorGuid {
+    fn deserialize<D>(deserializer: D) -> Result<DescriptorGuid, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        DescriptorGuid::from_str(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+impl serde::Serialize for DescriptorGuid {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.to_string().serialize(serializer)
     }
 }
 

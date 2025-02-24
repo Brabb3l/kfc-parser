@@ -1,5 +1,3 @@
-use std::hash::{DefaultHasher, Hasher};
-use shared::hash::{crc64, fnv};
 use crate::container::{BlobLink, DescriptorLink, KFCFile, PreloadLink};
 use crate::guid::{BlobGuid, DescriptorGuid};
 

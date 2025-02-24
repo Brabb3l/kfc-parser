@@ -115,6 +115,10 @@ impl PEFile {
     }
 
     pub fn va_to_fo(&self, va: u64) -> Option<u64> {
+        if va < self.image_base {
+            return None;
+        }
+        
         let va = (va - self.image_base) as u32;
 
         for section in &self.sections {

@@ -2,10 +2,13 @@ use clap::Parser;
 use colored::Colorize;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use parser::container::KFCFile;
+use parser::data::impact::bytecode::{ImpactAssembler, ImpactProgramData};
+use parser::data::impact::ImpactProgram;
 use parser::guid::DescriptorGuid;
 use parser::reflection::{TypeCollection, TypeParseError};
 use shared::io::{ReadExt, WriterSeekExt};
 use std::collections::HashMap;
+use std::env::current_exe;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -15,11 +18,12 @@ use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::sync::Mutex;
 use walkdir::WalkDir;
 
-use crate::cli::{Cli, Commands};
+use crate::cli::{Cli, CommandImpact, Commands};
 use crate::logging::*;
 
 mod cli;
 mod logging;
+// mod test;
 
 macro_rules! fatal {
     ($($arg:tt)*) => {
@@ -38,6 +42,7 @@ impl std::fmt::Display for Error {
 }
 
 fn main() {
+    // test::test().unwrap();
     let cli = Cli::parse();
     let thread_count = cli.threads;
 
@@ -65,6 +70,21 @@ fn main() {
             game_directory,
         } => {
             revert_repack(&game_directory, false)
+        }
+        Commands::Impact(impact) => match impact {
+            CommandImpact::Assemble {
+                input,
+                output,
+                guid,
+            } => {
+                assemble_impact(&input, output.as_deref(), guid.as_deref())
+            }
+            CommandImpact::Disassemble {
+                input,
+                output,
+            } => {
+                disassemble_impact(&input, output.as_deref())
+            }
         }
     };
     
@@ -97,7 +117,7 @@ fn unpack(
         fatal!("enshrouded.kfc file not found: {}", kfc_file.display());
     }
     
-    let type_collection = load_type_collection(game_dir, true)?;
+    let type_collection = load_type_collection(Some(game_dir), true)?;
 
     info!("Unpacking {} to {}", kfc_file.display(), output_dir.display());
 
@@ -248,7 +268,7 @@ fn unpack(
                         reader.seek(SeekFrom::Start(dir.descriptor_locations[0].offset as u64 + link.offset as u64))?;
                         reader.read_exact_n(link.size as usize, &mut data)?;
 
-                        let descriptor = type_collection.deserialize(guid.type_hash, &data)?;
+                        let descriptor = type_collection.deserialize_by_hash(guid.type_hash, &data)?;
 
                         let type_info = type_collection.get_type_by_qualified_hash(guid.type_hash)
                             .ok_or_else(|| anyhow::anyhow!("Type not found: {:x}", guid.type_hash))?;
@@ -332,7 +352,7 @@ fn repack(
         }
     }
 
-    let type_collection = load_type_collection(&game_dir, true)?;
+    let type_collection = load_type_collection(Some(&game_dir), true)?;
 
     info!("Repacking {} to {}", input_dir.display(), kfc_file.display());
 
@@ -351,6 +371,7 @@ fn repack(
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
         .filter(|e| e.path().extension().map(|x| x == "json").unwrap_or(false))
+        .filter(|e| !e.path().file_stem().and_then(|x| x.to_str()).unwrap_or("").contains('.'))
         .map(|e| e.path().to_path_buf())
         .collect::<Vec<_>>();
     
@@ -467,14 +488,24 @@ fn repack0(
                     };
 
                     let result: anyhow::Result<()> = (|| {
+                        let guid = match DescriptorGuid::from_str(
+                            file.file_stem().unwrap().to_str().unwrap()
+                        ) {
+                            Ok(guid) => guid,
+                            Err(_) => {
+                                mpb.suspend(|| {
+                                    warn!("Skipping file (invalid guid): {}", file.display());
+                                });
+                                
+                                return Ok(());
+                            }
+                        };
+                        
                         let json = std::fs::read(&file)?;
                         let descriptor: serde_json::Value = serde_json::from_slice(&json)?;
 
-                        let guid = DescriptorGuid::from_str(file.file_stem().unwrap().to_str().unwrap())
-                            .map_err(|e| anyhow::anyhow!("Invalid GUID: {}", e))?;
-
                         let mut data = Vec::with_capacity(1024);
-                        type_collection.serialize_into(guid.type_hash, &descriptor, &mut data)?;
+                        type_collection.serialize_into_by_hash(guid.type_hash, &descriptor, &mut data)?;
 
                         tx.send((guid, data)).unwrap();
 
@@ -643,7 +674,7 @@ fn extract_types(game_dir: PathBuf) -> Result<(), Error> {
     }
 
     let mut type_collection = TypeCollection::default();
-    let count = match type_collection.load_from_executable(executable) {
+    let count = match type_collection.load_from_executable(executable, true) {
         Ok(count) => count,
         Err(e) => {
             fatal!("Failed to extract types: {}", e)
@@ -651,8 +682,12 @@ fn extract_types(game_dir: PathBuf) -> Result<(), Error> {
     };
 
     info!("Extracted a total of {} types", count);
+    
+    let path = current_exe().unwrap()
+        .parent().unwrap()
+        .join("reflection_data.json");
 
-    match type_collection.dump_to_path(Path::new("reflection_data.json")) {
+    match type_collection.dump_to_path(path, true) {
         Ok(_) => {},
         Err(e) => {
             fatal!("Failed to dump reflection data: {}", e)
@@ -665,7 +700,7 @@ fn extract_types(game_dir: PathBuf) -> Result<(), Error> {
 }
 
 fn load_type_collection(
-    game_dir: &Path,
+    game_dir: Option<&Path>,
     retry_not_found: bool
 ) -> Result<TypeCollection, Error> {
     let mut type_collection = TypeCollection::default();
@@ -686,7 +721,12 @@ fn load_type_collection(
         });
 
         let loading_handle = s.spawn(|| {
-            type_collection.load_from_path(Path::new("reflection_data.json"))
+            type_collection.load_from_path(
+                current_exe().unwrap()
+                    .parent().unwrap()
+                    .join("reflection_data.json")
+                    .as_path()
+            )
         });
 
         // Wait for the loading to finish and just unwrap potential panic
@@ -703,10 +743,16 @@ fn load_type_collection(
     let type_count = match result {
         Ok(n) => n,
         Err(TypeParseError::Io(e)) => {
-            if e.kind() == std::io::ErrorKind::NotFound && retry_not_found {
-                warn!("reflection_data.json not found, attempting to extract types first...");
-                extract_types(game_dir.to_path_buf())?;
-                return load_type_collection(game_dir, false);
+            if let Some(game_dir) = game_dir {
+                if e.kind() == std::io::ErrorKind::NotFound && retry_not_found {
+                    warn!("reflection_data.json not found, attempting to extract types first...");
+                    extract_types(game_dir.to_path_buf())?;
+                    return load_type_collection(Some(game_dir), false);
+                } else {
+                    fatal!("Failed to load reflection_data.json: {}", e);
+                }
+            } else if e.kind() == std::io::ErrorKind::NotFound {
+                fatal!("reflection_data.json not found, please extract types first");
             } else {
                 fatal!("Failed to load reflection_data.json: {}", e);
             }
@@ -718,3 +764,187 @@ fn load_type_collection(
     
     Ok(type_collection)
 }
+
+fn assemble_impact(
+    input_file: &Path,
+    output_file: Option<&Path>,
+    guid: Option<&str>,
+) -> Result<(), Error> {
+    let type_collection = load_type_collection(None, true)?;
+    let file_name = input_file.file_stem().unwrap().to_str().unwrap();
+    
+    let guid_str = guid
+        .or_else(|| output_file.map(|f| f.file_stem().unwrap().to_str().unwrap()))
+        .unwrap_or(file_name);
+
+    let guid = match DescriptorGuid::from_str(guid_str) {
+        Ok(guid) => guid,
+        Err(e) => {
+            if let Some(guid) = guid {
+                fatal!("`{}` is not a valid descriptor guid: {}", guid, e);
+            } else if output_file.is_some() {
+                fatal!("Output file name must be a valid descriptor guid: {}", e);
+            } else {
+                fatal!("Input file name must be a valid descriptor guid: {}", e);
+            }
+        }
+    };
+    
+    // read files
+    
+    let impact_file = input_file.with_file_name(format!("{}.impact", file_name));
+    let shutdown_file = input_file.with_file_name(format!("{}.shutdown.impact", file_name));
+    let data_file = input_file.with_file_name(format!("{}.data.json", file_name));
+    
+    let impact_content = match std::fs::read_to_string(&impact_file) {
+        Ok(content) => content,
+        Err(e) => fatal!("Failed to read `{}.impact`: {}", file_name, e)
+    };
+    let shutdown_content = match std::fs::read_to_string(&shutdown_file) {
+        Ok(content) => content,
+        Err(e) => fatal!("Failed to read `{}.shutdown.impact`: {}", file_name, e)
+    };
+    let data_content = match std::fs::read_to_string(&data_file) {
+        Ok(content) => content,
+        Err(e) => fatal!("Failed to read `{}.data.json`: {}", file_name, e)
+    };
+    
+    // parse data
+
+    let program_data = match serde_json::from_str::<ImpactProgramData>(&data_content) {
+        Ok(data) => data,
+        Err(e) => fatal!("Failed to parse `{}.data.json`: {}", file_name, e)
+    };
+
+    // assemble bytecode
+    
+    let assembler = ImpactAssembler::new(&type_collection);
+    
+    let impact_ops = match assembler.parse_text(&program_data, &impact_content) {
+        Ok(ops) => ops,
+        Err(e) => fatal!("Failed to parse `{}.impact`: {}", file_name, e)
+    };
+    
+    let shutdown_ops = match assembler.parse_text(&program_data, &shutdown_content) {
+        Ok(ops) => ops,
+        Err(e) => fatal!("Failed to parse `{}.shutdown.impact`: {}", file_name, e)
+    };
+    
+    // create program
+    
+    let impact_program = match program_data.into_program(
+        &type_collection,
+        guid.as_blob_guid(),
+        ImpactAssembler::assemble(&impact_ops),
+        ImpactAssembler::assemble(&shutdown_ops),
+    ) {
+        Ok(program) => program,
+        Err(e) => fatal!("Failed to create program: {}", e)
+    };
+    
+    // info
+    
+    info!("Impact program info:");
+    info!(" - {} + {} ops", impact_ops.len(), shutdown_ops.len());
+    info!(" - {} data entries ({} bytes)", impact_program.data_layout.len(), impact_program.data.len());
+    
+    // write to file
+    
+    let output_file = output_file.unwrap_or(input_file)
+        .with_extension("json");
+    
+    let writer = match File::create(&output_file) {
+        Ok(file) => BufWriter::new(file),
+        Err(e) => fatal!("Failed to create output file: {}", e)
+    };
+    
+    match serde_json::to_writer_pretty(writer, &impact_program) {
+        Ok(()) => {},
+        Err(e) => fatal!("Failed to write to output file: {}", e)
+    }
+    
+    info!("Impact program has been written to {}", output_file.display());
+    
+    Ok(())
+}
+
+fn disassemble_impact(
+    input_file: &Path,
+    output_file: Option<&Path>,
+) -> Result<(), Error> {
+    let type_collection = load_type_collection(None, true)?;
+    let output_file = output_file.unwrap_or(input_file);
+    let file_name = output_file.file_stem().unwrap().to_str().unwrap();
+
+    let impact_file = output_file.with_file_name(format!("{}.impact", file_name));
+    let shutdown_file = output_file.with_file_name(format!("{}.shutdown.impact", file_name));
+    let data_file = output_file.with_file_name(format!("{}.data.json", file_name));
+    
+    // read program
+    
+    let reader = match File::open(input_file) {
+        Ok(file) => BufReader::new(file),
+        Err(e) => fatal!("Failed to open input file: {}", e)
+    };
+    
+    let impact_program = match serde_json::from_reader::<_, ImpactProgram>(reader) {
+        Ok(program) => program,
+        Err(e) => fatal!("Failed to parse input file: {}", e)
+    };
+    
+    // extract and write data
+    
+    let impact_data = match ImpactProgramData::from_program(&type_collection, &impact_program) {
+        Ok(data) => data,
+        Err(e) => fatal!("Failed to parse data from program: {}", e)
+    };
+    
+    let data_writer = match File::create(&data_file) {
+        Ok(file) => BufWriter::new(file),
+        Err(e) => fatal!("Failed to create `{}.data.json`: {}", file_name, e)
+    };
+    
+    match serde_json::to_writer_pretty(data_writer, &impact_data) {
+        Ok(()) => {},
+        Err(e) => fatal!("Failed to write `{}.data.json`: {}", file_name, e)
+    }
+    
+    // disassemble bytecode
+    
+    let assembler = ImpactAssembler::new(&type_collection);
+    
+    let mut impact_file_writer = match File::create(&impact_file) {
+        Ok(file) => BufWriter::new(file),
+        Err(e) => fatal!("Failed to create `{}.impact`: {}", file_name, e)
+    };
+    
+    if let Err(e) =  assembler.write_text(
+        &mut impact_file_writer,
+        &impact_program,
+        &ImpactAssembler::disassemble(&impact_program.code),
+    ) {
+        fatal!("Failed to write `{}.impact`: {}", file_name, e);
+    }
+    
+    let mut shutdown_file_writer = match File::create(&shutdown_file) {
+        Ok(file) => BufWriter::new(file),
+        Err(e) => fatal!("Failed to create `{}.shutdown.impact`: {}", file_name, e)
+    };
+    
+    if let Err(e) = assembler.write_text(
+        &mut shutdown_file_writer,
+        &impact_program,
+        &ImpactAssembler::disassemble(&impact_program.code_shutdown),
+    ) {
+        fatal!("Failed to write `{}.shutdown.impact`: {}", file_name, e);
+    }
+    
+    // info
+    
+    info!("Impact program has been written to:");
+    info!(" - {}", impact_file.display());
+    info!(" - {}", shutdown_file.display());
+    info!(" - {}", data_file.display());
+    
+    Ok(())
+}   

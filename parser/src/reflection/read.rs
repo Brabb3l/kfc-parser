@@ -6,21 +6,29 @@ use shared::io::{ReadExt, ReadSeekExt};
 use crate::guid::BlobGuid;
 
 use super::types::*;
-use super::{TypeCollection, ReadError};
+use super::{ReadError, TypeCollection};
 
 impl TypeCollection {
-    pub fn deserialize(
+    pub fn deserialize_by_hash(
         &self,
         type_hash: u32,
         data: &[u8]
     ) -> Result<JsonValue, ReadError> {
-        let mut reader = Cursor::new(data);
         let type_entry = self.get_type_by_qualified_hash(type_hash)
             .ok_or(ReadError::UnknownType(type_hash))?;
 
+        Self::deserialize(self, type_entry, data)
+    }
+
+    pub fn deserialize(
+        &self,
+        type_entry: &TypeInfo,
+        data: &[u8]
+    ) -> Result<JsonValue, ReadError> {
+        let mut reader = Cursor::new(data);
         Self::read_type(self, type_entry, &mut reader, 0)
     }
-    
+
     fn read_type<R: Read + Seek>(
         &self,
         type_entry: &TypeInfo,
@@ -299,15 +307,18 @@ impl TypeCollection {
             },
             PrimitiveType::ObjectReference => {
                 let guid = BlobGuid::read(reader)?;
-                let inner_type = self.get_inner_type_opt(type_entry);
                 
-                let crpf_guid = if let Some(inner_type) = &inner_type {
-                    guid.as_descriptor_guid(inner_type.qualified_hash, 0)
-                } else {
-                    guid.as_descriptor_guid(0, 0)
-                };
+                // I don't think this is really necessary to include
+                // 
+                // let inner_type = self.get_inner_type_opt(type_entry);
+                // 
+                // let guid = if let Some(inner_type) = &inner_type {
+                //     guid.as_descriptor_guid(inner_type.qualified_hash, 0)
+                // } else {
+                //     guid.as_descriptor_guid(0, 0)
+                // };
                 
-                JsonValue::String(crpf_guid.to_string())
+                JsonValue::String(guid.to_string())
             },
             PrimitiveType::Guid => {
                 let value = BlobGuid::read(reader)?;

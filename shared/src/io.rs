@@ -1,4 +1,4 @@
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Read, Seek, Write};
 
 pub trait ReadExt: Read {
     fn read_u8(&mut self) -> std::io::Result<u8> {
