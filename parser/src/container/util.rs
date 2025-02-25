@@ -1,5 +1,8 @@
-use crate::container::{BlobLink, DescriptorLink, KFCFile, PreloadLink};
+use shared::hash::fnv_with_seed;
+
 use crate::guid::{BlobGuid, DescriptorGuid};
+
+use super::{BlobLink, DescriptorLink, KFCFile, PreloadLink};
 
 impl KFCFile {
     pub fn get_blob_link(&self, guid: &BlobGuid) -> Option<&BlobLink> {
@@ -25,10 +28,14 @@ impl KFCFile {
     }
 
     pub fn get_descriptor_link(&self, guid: &DescriptorGuid) -> Option<&DescriptorLink> {
-        todo!("Implement hash function for DescriptorGuid");
-        let hash = 0;
+        let seed = u32::from_le_bytes(guid.data[0..4].try_into().unwrap());
+        let mut rest = [0u8; 8];
+        rest[0..4].copy_from_slice(guid.type_hash.to_le_bytes().as_ref());
+        rest[4..8].copy_from_slice(guid.part_number.to_le_bytes().as_ref());
 
-        let index = hash % self.descriptor_buckets.len() as u64;
+        let hash = fnv_with_seed(rest, seed);
+
+        let index = hash as usize % self.descriptor_buckets.len();
         let bucket = &self.descriptor_buckets[index as usize];
 
         for i in 0..bucket.count {
