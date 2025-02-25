@@ -94,4 +94,7 @@ pub enum CommandImpact {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+
+    /// Extracts all nodes from the reflection data
+    ExtractNodes,
 }

@@ -85,6 +85,9 @@ fn main() {
             } => {
                 disassemble_impact(&input, output.as_deref())
             }
+            CommandImpact::ExtractNodes => {
+                extract_nodes()
+            }
         }
     };
     
@@ -496,11 +499,11 @@ fn repack0(
                                 mpb.suspend(|| {
                                     warn!("Skipping file (invalid guid): {}", file.display());
                                 });
-                                
+
                                 return Ok(());
                             }
                         };
-                        
+
                         let json = std::fs::read(&file)?;
                         let descriptor: serde_json::Value = serde_json::from_slice(&json)?;
 
@@ -682,7 +685,7 @@ fn extract_types(game_dir: PathBuf) -> Result<(), Error> {
     };
 
     info!("Extracted a total of {} types", count);
-    
+
     let path = current_exe().unwrap()
         .parent().unwrap()
         .join("reflection_data.json");
@@ -772,7 +775,7 @@ fn assemble_impact(
 ) -> Result<(), Error> {
     let type_collection = load_type_collection(None, true)?;
     let file_name = input_file.file_stem().unwrap().to_str().unwrap();
-    
+
     let guid_str = guid
         .or_else(|| output_file.map(|f| f.file_stem().unwrap().to_str().unwrap()))
         .unwrap_or(file_name);
@@ -789,13 +792,13 @@ fn assemble_impact(
             }
         }
     };
-    
+
     // read files
-    
+
     let impact_file = input_file.with_file_name(format!("{}.impact", file_name));
     let shutdown_file = input_file.with_file_name(format!("{}.shutdown.impact", file_name));
     let data_file = input_file.with_file_name(format!("{}.data.json", file_name));
-    
+
     let impact_content = match std::fs::read_to_string(&impact_file) {
         Ok(content) => content,
         Err(e) => fatal!("Failed to read `{}.impact`: {}", file_name, e)
@@ -808,7 +811,7 @@ fn assemble_impact(
         Ok(content) => content,
         Err(e) => fatal!("Failed to read `{}.data.json`: {}", file_name, e)
     };
-    
+
     // parse data
 
     let program_data = match serde_json::from_str::<ImpactProgramData>(&data_content) {
@@ -817,21 +820,21 @@ fn assemble_impact(
     };
 
     // assemble bytecode
-    
+
     let assembler = ImpactAssembler::new(&type_collection);
-    
+
     let impact_ops = match assembler.parse_text(&program_data, &impact_content) {
         Ok(ops) => ops,
         Err(e) => fatal!("Failed to parse `{}.impact`: {}", file_name, e)
     };
-    
+
     let shutdown_ops = match assembler.parse_text(&program_data, &shutdown_content) {
         Ok(ops) => ops,
         Err(e) => fatal!("Failed to parse `{}.shutdown.impact`: {}", file_name, e)
     };
-    
+
     // create program
-    
+
     let impact_program = match program_data.into_program(
         &type_collection,
         guid.as_blob_guid(),
@@ -841,30 +844,30 @@ fn assemble_impact(
         Ok(program) => program,
         Err(e) => fatal!("Failed to create program: {}", e)
     };
-    
+
     // info
-    
+
     info!("Impact program info:");
     info!(" - {} + {} ops", impact_ops.len(), shutdown_ops.len());
     info!(" - {} data entries ({} bytes)", impact_program.data_layout.len(), impact_program.data.len());
-    
+
     // write to file
-    
+
     let output_file = output_file.unwrap_or(input_file)
         .with_extension("json");
-    
+
     let writer = match File::create(&output_file) {
         Ok(file) => BufWriter::new(file),
         Err(e) => fatal!("Failed to create output file: {}", e)
     };
-    
+
     match serde_json::to_writer_pretty(writer, &impact_program) {
         Ok(()) => {},
         Err(e) => fatal!("Failed to write to output file: {}", e)
     }
-    
+
     info!("Impact program has been written to {}", output_file.display());
-    
+
     Ok(())
 }
 
@@ -879,45 +882,45 @@ fn disassemble_impact(
     let impact_file = output_file.with_file_name(format!("{}.impact", file_name));
     let shutdown_file = output_file.with_file_name(format!("{}.shutdown.impact", file_name));
     let data_file = output_file.with_file_name(format!("{}.data.json", file_name));
-    
+
     // read program
-    
+
     let reader = match File::open(input_file) {
         Ok(file) => BufReader::new(file),
         Err(e) => fatal!("Failed to open input file: {}", e)
     };
-    
+
     let impact_program = match serde_json::from_reader::<_, ImpactProgram>(reader) {
         Ok(program) => program,
         Err(e) => fatal!("Failed to parse input file: {}", e)
     };
-    
+
     // extract and write data
-    
+
     let impact_data = match ImpactProgramData::from_program(&type_collection, &impact_program) {
         Ok(data) => data,
         Err(e) => fatal!("Failed to parse data from program: {}", e)
     };
-    
+
     let data_writer = match File::create(&data_file) {
         Ok(file) => BufWriter::new(file),
         Err(e) => fatal!("Failed to create `{}.data.json`: {}", file_name, e)
     };
-    
+
     match serde_json::to_writer_pretty(data_writer, &impact_data) {
         Ok(()) => {},
         Err(e) => fatal!("Failed to write `{}.data.json`: {}", file_name, e)
     }
-    
+
     // disassemble bytecode
-    
+
     let assembler = ImpactAssembler::new(&type_collection);
-    
+
     let mut impact_file_writer = match File::create(&impact_file) {
         Ok(file) => BufWriter::new(file),
         Err(e) => fatal!("Failed to create `{}.impact`: {}", file_name, e)
     };
-    
+
     if let Err(e) =  assembler.write_text(
         &mut impact_file_writer,
         &impact_program,
@@ -925,12 +928,12 @@ fn disassemble_impact(
     ) {
         fatal!("Failed to write `{}.impact`: {}", file_name, e);
     }
-    
+
     let mut shutdown_file_writer = match File::create(&shutdown_file) {
         Ok(file) => BufWriter::new(file),
         Err(e) => fatal!("Failed to create `{}.shutdown.impact`: {}", file_name, e)
     };
-    
+
     if let Err(e) = assembler.write_text(
         &mut shutdown_file_writer,
         &impact_program,
@@ -938,13 +941,38 @@ fn disassemble_impact(
     ) {
         fatal!("Failed to write `{}.shutdown.impact`: {}", file_name, e);
     }
-    
+
     // info
-    
+
     info!("Impact program has been written to:");
     info!(" - {}", impact_file.display());
     info!(" - {}", shutdown_file.display());
     info!(" - {}", data_file.display());
+
+    Ok(())
+}
+
+fn extract_nodes() -> Result<(), Error> {
+    let type_collection = load_type_collection(None, true)?;
+    let nodes = type_collection.get_impact_nodes()
+        .into_values()
+        .collect::<Vec<_>>();
+    
+    let output_path = current_exe().unwrap()
+        .parent().unwrap()
+        .join("impact_nodes.json");
+    
+    let writer = match File::create(&output_path) {
+        Ok(file) => BufWriter::new(file),
+        Err(e) => fatal!("Failed to create `impact_nodes.json`: {}", e),
+    };
+
+    match serde_json::to_writer_pretty(writer, &nodes) {
+        Ok(()) => {},
+        Err(e) => fatal!("Failed to write `impact_nodes.json`: {}", e)
+    }
+
+    info!("Impact node data has been written to {}", std::path::absolute(output_path).unwrap().display());
     
     Ok(())
-}   
+}
