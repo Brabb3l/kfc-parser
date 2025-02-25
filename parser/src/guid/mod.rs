@@ -42,11 +42,11 @@ impl BlobGuid {
         }
     }
 
-    pub fn hash(&self) -> u64 {
+    pub fn hash64(&self) -> u64 {
         crc64(self.to_string())
     }
 
-    pub fn fnv_hash(&self) -> u32 {
+    pub fn hash32(&self) -> u32 {
         fnv(self.data)
     }
 
@@ -59,7 +59,6 @@ impl BlobGuid {
             data: self.data,
             type_hash,
             part_number,
-            reserved: 0,
         }
     }
     
@@ -111,7 +110,7 @@ impl serde::Serialize for BlobGuid {
 
 impl Debug for BlobGuid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "\"{}\" ({})", self, self.hash())
+        write!(f, "\"{}\" ({})", self, self.hash32())
     }
 }
 
@@ -130,7 +129,7 @@ pub struct DescriptorGuid {
     pub data: [u8; 16],
     pub type_hash: u32,
     pub part_number: u32,
-    pub reserved: u64,
+    // pub reserved: u64,
 }
 
 impl DescriptorGuid {
@@ -138,14 +137,13 @@ impl DescriptorGuid {
         data: [0; 16],
         type_hash: 0,
         part_number: 0,
-        reserved: 0,
     };
     
-    pub fn hash(&self) -> u64 {
+    pub fn hash64(&self) -> u64 {
         crc64(self.to_string())
     }
     
-    pub fn fnv_hash(&self) -> u32 {
+    pub fn hash32(&self) -> u32 {
         fnv(self.to_string())
     }
 
@@ -211,7 +209,7 @@ impl FromStr for DescriptorGuid {
             data,
             type_hash,
             part_number,
-            reserved: 0
+            // reserved: 0
         })
     }
 }
@@ -237,7 +235,7 @@ impl serde::Serialize for DescriptorGuid {
 
 impl Debug for DescriptorGuid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "\"{}\" ({:0X})", self, self.hash())
+        write!(f, "\"{}\" ({:0X})", self, self.hash32())
     }
 }
 
@@ -257,12 +255,12 @@ impl Display for DescriptorGuid {
 }
 
 mod test {
-    use std::str::FromStr;
-
-    const GUID: &str = "40e6ba42-a397-5790-a5c9-a4151fffe1c5_647628d6_420";
-    
     #[test]
     fn test_guid_string() {
+        use std::str::FromStr;
+        
+        const GUID: &str = "40e6ba42-a397-5790-a5c9-a4151fffe1c5_647628d6_420";
+        
         let guid = super::DescriptorGuid::from_str(GUID).unwrap();
         
         assert_eq!(guid.to_string(), GUID);

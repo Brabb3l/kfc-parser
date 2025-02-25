@@ -110,7 +110,7 @@ impl ImpactProgramData {
         code: Vec<ImpactCommand>,
         code_shutdown: Vec<ImpactCommand>,
     ) -> anyhow::Result<ImpactProgram> {
-        let id = HashKey32::from(guid.fnv_hash());
+        let id = HashKey32::from(guid.hash32());
         let program_guid = guid;
         let stack_size = 256;
         let used_streams = self.used_streams;

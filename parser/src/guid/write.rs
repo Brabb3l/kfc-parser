@@ -14,7 +14,7 @@ impl DescriptorGuid {
         writer.write_all(&self.data)?;
         writer.write_u32(self.type_hash)?;
         writer.write_u32(self.part_number)?;
-        writer.write_u64(self.reserved)?;
+        writer.padding(8)?;
 
         Ok(())
     }

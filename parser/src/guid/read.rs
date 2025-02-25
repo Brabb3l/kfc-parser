@@ -20,15 +20,13 @@ impl DescriptorGuid {
         reader.read_exact(&mut data)?;
 
         let type_hash = reader.read_u32()?;
-
         let part_number = reader.read_u32()?;
-        let reserved = reader.read_u64()?;
+        reader.padding(8)?;
 
         Ok(Self {
             data,
             type_hash,
             part_number,
-            reserved
         })
     }
 }
