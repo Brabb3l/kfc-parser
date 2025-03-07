@@ -38,10 +38,6 @@ pub enum Commands {
         /// Input directory containing unpacked files
         #[arg(short, long)]
         input: PathBuf,
-        
-        /// Repack the whole file from scratch instead of extending the existing one
-        #[arg(long)]
-        all: bool,
     },
     
     /// Extract type information from enshrouded files

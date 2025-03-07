@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use shared::hash::fnv;
 use std::collections::HashMap;
 
 use crate::reflection::{TypeCollection, TypeInfo};
@@ -68,7 +67,7 @@ impl<'a, 'b> ImpactProgramDecompiler<'a, 'b> {
                 let output = node.outputs.first().unwrap();
                 let ty = type_collection.get_type_by_qualified_hash(output.r#type.hash)
                     .expect("missing type info");
-                (fnv(ty.name.as_bytes()), node.clone())
+                (ty.name_hash, node.clone())
             })
             .collect::<HashMap<_, _>>();
 

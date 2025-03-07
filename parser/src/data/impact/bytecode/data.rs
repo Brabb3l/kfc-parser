@@ -127,7 +127,7 @@ impl ImpactProgramData {
             let type_info = type_collection
                 .get_type_by_qualified_name(&entry.r#type)
                 .ok_or_else(|| anyhow::anyhow!("Type not found: {}", entry.r#type))?;
-            let r#type = HashKey32::from(fnv(type_info.impact_name.as_bytes()));
+            let r#type = HashKey32::from(type_info.impact_hash);
             
             if let Some(mapping) = entry.parent {
                 let parent_hash = fnv(mapping.parent_name.as_bytes());

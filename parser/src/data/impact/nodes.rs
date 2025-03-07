@@ -1,7 +1,7 @@
 use shared::hash::{fnv, fnv_const};
 use std::collections::HashMap;
 
-use crate::reflection::{TypeCollection, TypeInfo};
+use crate::{reflection::{TypeCollection, TypeInfo}, Hash32};
 
 pub const IMPACT_NODE_EXECUTION: &str = "$ImpactNodeExecution";
 pub const IMPACT_NODE_EXECUTION_HASH: u32 = fnv_const(IMPACT_NODE_EXECUTION);
@@ -13,7 +13,7 @@ pub const IMPACT_NODE_EXECUTION_BRANCH_HASH: u32 = fnv_const(IMPACT_NODE_EXECUTI
 #[serde(rename_all = "camelCase")]
 pub struct ImpactNode<'a> {
     pub name: &'a str,
-    pub hash: u32,
+    pub hash: Hash32,
     pub r#type: ImpactNodeTypeRef<'a>,
     pub super_types: Vec<ImpactNodeTypeRef<'a>>,
     pub inputs: Vec<ImpactNodePin<'a>>,
@@ -26,7 +26,7 @@ pub struct ImpactNode<'a> {
 #[serde(rename_all = "camelCase")]
 pub struct ImpactNodeTypeRef<'a> {
     pub name: &'a str,
-    pub hash: u32,
+    pub hash: Hash32,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -71,11 +71,11 @@ impl TypeCollection {
     fn create_node<'a: 'b, 'b: 'c, 'c>(
         &'a self,
         node: &'a TypeInfo,
-        nodes: &'c mut HashMap<u32, ImpactNode<'b>>,
+        nodes: &'c mut HashMap<Hash32, ImpactNode<'b>>,
         shutdown_name: Option<&'a str>,
     ) -> &'c ImpactNode<'b> {
-        if nodes.contains_key(&fnv(node.name.as_bytes())) {
-            return &nodes[&fnv(node.name.as_bytes())];
+        if nodes.contains_key(&node.name_hash) {
+            return &nodes[&node.name_hash];
         }
 
         if shutdown_name.is_none() {
@@ -90,12 +90,15 @@ impl TypeCollection {
         let mut super_types = Vec::new();
         let mut inner = &node.inner_type;
         while let Some(ty) = inner {
+            let info = self.get_type(*ty)
+                .expect("invalid inner type");
+
             super_types.push(ImpactNodeTypeRef {
-                name: &ty.name,
-                hash: ty.hash,
+                name: &info.qualified_name,
+                hash: info.qualified_hash,
             });
 
-            inner = if let Some(ty) = self.get_type_by_qualified_hash(ty.hash) {
+            inner = if let Some(ty) = self.get_type(*ty) {
                 &ty.inner_type
             } else {
                 break;
@@ -142,14 +145,19 @@ impl TypeCollection {
             node.struct_fields.iter()
                 .filter(|field| field.attributes.iter()
                     .any(|attr| attr.name == IMPACT_INPUT))
-                .map(|field| ImpactNodePin {
-                    name: &field.name,
-                    r#type: ImpactNodeTypeRef {
-                        name: &field.r#type.name,
-                        hash: field.r#type.hash,
-                    },
-                    is_mandatory: field.attributes.iter()
-                        .any(|attr| attr.name == IMPACT_MANDATORY)
+                .map(|field| {
+                    let ty = self.get_type(field.r#type)
+                        .expect("invalid type");
+
+                    ImpactNodePin {
+                        name: &field.name,
+                        r#type: ImpactNodeTypeRef {
+                            name: &ty.qualified_name,
+                            hash: ty.qualified_hash,
+                        },
+                        is_mandatory: field.attributes.iter()
+                            .any(|attr| attr.name == IMPACT_MANDATORY)
+                    }
                 })
         );
 
@@ -158,16 +166,21 @@ impl TypeCollection {
                 .filter(|field|
                     field.attributes.iter()
                         .any(|attr| attr.name == IMPACT_OUTPUT) || 
-                    field.r#type.hash == IMPACT_NODE_EXECUTION_BRANCH_HASH
+                    self.get_type(field.r#type).unwrap().qualified_hash == IMPACT_NODE_EXECUTION_BRANCH_HASH
                 )
-                .map(|field| ImpactNodePin {
-                    name: &field.name,
-                    r#type: ImpactNodeTypeRef {
-                        name: &field.r#type.name,
-                        hash: field.r#type.hash,
-                    },
-                    is_mandatory: field.attributes.iter()
-                        .any(|attr| attr.name == IMPACT_MANDATORY)
+                .map(|field| {
+                    let ty = self.get_type(field.r#type)
+                        .expect("invalid type");
+
+                    ImpactNodePin {
+                        name: &field.name,
+                        r#type: ImpactNodeTypeRef {
+                            name: &ty.qualified_name,
+                            hash: ty.qualified_hash,
+                        },
+                        is_mandatory: field.attributes.iter()
+                            .any(|attr| attr.name == IMPACT_MANDATORY)
+                    }
                 })
         );
 
@@ -175,13 +188,18 @@ impl TypeCollection {
             node.struct_fields.iter()
                 .filter(|field| field.attributes.iter()
                     .any(|attr| attr.name == IMPACT_CONFIG))
-                .map(|field| ImpactNodePin {
-                    name: &field.name,
-                    r#type: ImpactNodeTypeRef {
-                        name: &field.r#type.name,
-                        hash: field.r#type.hash,
-                    },
-                    is_mandatory: false
+                .map(|field| {
+                    let ty = self.get_type(field.r#type)
+                        .expect("invalid type");
+
+                    ImpactNodePin {
+                        name: &field.name,
+                        r#type: ImpactNodeTypeRef {
+                            name: &ty.qualified_name,
+                            hash: ty.qualified_hash,
+                        },
+                        is_mandatory: false
+                    }
                 })
         );
 
@@ -189,13 +207,18 @@ impl TypeCollection {
             node.struct_fields.iter()
                 .filter(|field| field.attributes.iter()
                     .any(|attr| attr.name == IMPACT_VALUE))
-                .map(|field| ImpactNodePin {
-                    name: &field.name,
-                    r#type: ImpactNodeTypeRef {
-                        name: &field.r#type.name,
-                        hash: field.r#type.hash,
-                    },
-                    is_mandatory: false
+                .map(|field| {
+                    let ty = self.get_type(field.r#type)
+                        .expect("invalid type");
+
+                    ImpactNodePin {
+                        name: &field.name,
+                        r#type: ImpactNodeTypeRef {
+                            name: &ty.qualified_name,
+                            hash: ty.qualified_hash,
+                        },
+                        is_mandatory: false
+                    }
                 })
         );
         

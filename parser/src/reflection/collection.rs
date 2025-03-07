@@ -11,12 +11,13 @@ use super::{parser, ReflectionParseError, TypeParseError};
 
 #[derive(Debug, Default)]
 pub struct TypeCollection {
-    pub types: Vec<Arc<TypeInfo>>,
-    pub(crate) types_by_qualified_hash: HashMap<u32, Arc<TypeInfo>>,
-    pub(crate) types_by_impact_hash: HashMap<u32, Arc<TypeInfo>>,
+    types: Vec<Arc<TypeInfo>>,
+    types_by_qualified_hash: HashMap<u32, Arc<TypeInfo>>,
+    types_by_impact_hash: HashMap<u32, Arc<TypeInfo>>,
 }
 
 impl TypeCollection {
+
     pub fn load_from_path(&mut self, path: impl AsRef<Path>) -> Result<usize, TypeParseError> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
@@ -54,9 +55,15 @@ impl TypeCollection {
 
         Ok(())
     }
-}
 
-impl TypeCollection {
+    pub fn get_type(
+        &self,
+        index: usize,
+    ) -> Option<&TypeInfo> {
+        self.types.get(index)
+            .map(|node| node.as_ref())
+    }
+
     pub fn get_type_by_qualified_hash(
         &self,
         hash: u32
@@ -95,7 +102,7 @@ impl TypeCollection {
             chain.push(current);
 
             if let Some(parent) = &current.inner_type {
-                if let Some(parent) = self.get_type_by_qualified_hash(parent.hash) {
+                if let Some(parent) = self.get_type(*parent) {
                     current = parent;
                 } else {
                     break;
@@ -117,11 +124,21 @@ impl TypeCollection {
     pub fn extend(&mut self, types: Vec<TypeInfo>) -> usize {
         let len = types.len();
 
+        // TODO: Handle duplicates properly
+
         for entry in types {
             let value = Arc::new(entry);
 
             if !value.flags.contains(TypeFlags::HAS_DS) {
-                self.types_by_impact_hash.insert(fnv(value.impact_name.as_bytes()), value.clone());
+                if self.types_by_impact_hash.contains_key(&value.impact_hash) {
+                    panic!("Duplicate impact hash: {:#010X}", value.impact_hash);
+                }
+
+                self.types_by_impact_hash.insert(value.impact_hash, value.clone());
+            }
+
+            if self.types_by_qualified_hash.contains_key(&value.qualified_hash) {
+                panic!("Duplicate qualified hash: {:#010X}", value.qualified_hash);
             }
 
             self.types_by_qualified_hash.insert(value.qualified_hash, value.clone());
@@ -129,6 +146,19 @@ impl TypeCollection {
         }
 
         len
+    }
+
+    pub fn len(&self) -> usize {
+        self.types.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.types.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &TypeInfo> {
+        self.types.iter()
+            .map(|node| node.as_ref())
     }
     
     /// Consumes the collection and returns the inner types.

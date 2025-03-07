@@ -64,7 +64,8 @@ pub trait ReadExt: Read {
     fn read_string(&mut self, len: usize) -> std::io::Result<String> {
         let mut buf = vec![0; len];
         self.read_exact(&mut buf)?;
-        Ok(String::from_utf8(buf).unwrap())
+        String::from_utf8(buf)
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid utf-8"))
     }
 
     fn read_exact_n(&mut self, len: usize, buf: &mut Vec<u8>) -> std::io::Result<()> {
@@ -154,14 +155,14 @@ pub trait WriteExt: Write {
         self.write_all(s)
     }
     
-    fn padding(&mut self, n: usize) -> std::io::Result<()> {
-        self.write_all(&vec![0; n])
+    fn padding(&mut self, n: u64) -> std::io::Result<()> {
+        self.write_all(&vec![0; n as usize])
     }
 }
 
 impl<T: Write> WriteExt for T {}
 
-pub trait WriterSeekExt: Write + Seek + Sized {
+pub trait WriteSeekExt: Write + Seek + Sized {
     fn write_offset(&mut self, offset: u64) -> std::io::Result<()> {
         if offset == 0 {
             self.write_u32(0)?;
@@ -191,4 +192,4 @@ pub trait WriterSeekExt: Write + Seek + Sized {
     }
 }
 
-impl<T: Write + Seek> WriterSeekExt for T {}
+impl<T: Write + Seek> WriteSeekExt for T {}

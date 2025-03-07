@@ -1,54 +1,65 @@
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 
+use crate::Hash32;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TypeInfo {
     pub name: String,
     pub impact_name: String,
     pub qualified_name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub namespace: Vec<String>,
-    pub inner_type: Option<TypeRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inner_type: Option<usize>,
     pub size: u32,
     pub alignment: u16,
     pub element_alignment: u16,
     pub field_count: u32,
     pub primitive_type: PrimitiveType,
     pub flags: TypeFlags,
-    pub qualified_hash: u32,
-    pub internal_hash: u32,
+    pub name_hash: Hash32, // pre-computed
+    pub impact_hash: Hash32, // pre-computed
+    pub qualified_hash: Hash32,
+    pub internal_hash: Hash32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub struct_fields: Vec<StructFieldInfo>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub enum_fields: Vec<EnumFieldInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_value: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attributes: Vec<Attribute>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StructFieldInfo {
     pub name: String,
-    pub r#type: TypeRef,
+    pub r#type: usize,
     pub data_offset: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attributes: Vec<Attribute>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Attribute {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub namespace: Vec<String>,
-    pub r#type: Option<TypeRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<usize>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub value: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EnumFieldInfo {
     pub name: String,
     pub value: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TypeRef {
-    pub name: String,
-    pub hash: u32,
 }
 
 bitflags::bitflags! {
@@ -64,21 +75,32 @@ bitflags::bitflags! {
         const IS_GPU_STORAGE = 0x40;
         const IS_GPU_CONSTANT = 0x80;
     }
+
+    // TODO: Serialize, Deserialize to array instead of pipe separated string
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[repr(u8)]
 pub enum PrimitiveType {
     None,
     Bool,
+    #[serde(rename = "UINT8")]
     UInt8,
+    #[serde(rename = "SINT8")]
     SInt8,
+    #[serde(rename = "UINT16")]
     UInt16,
+    #[serde(rename = "SINT16")]
     SInt16,
+    #[serde(rename = "UINT32")]
     UInt32,
+    #[serde(rename = "SINT32")]
     SInt32,
+    #[serde(rename = "UINT64")]
     UInt64,
+    #[serde(rename = "SINT64")]
     SInt64,
     Float32,
     Float64,

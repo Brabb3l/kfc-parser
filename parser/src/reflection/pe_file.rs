@@ -11,11 +11,10 @@ pub const NT_SIGNATURE: u32 = 0x00004550;
 pub const PE32_MAGIC: u16 = 0x010B;
 pub const PE32_PLUS_MAGIC: u16 = 0x020B;
 
-
 #[derive(Debug)]
 struct Section {
     name: String,
-    virtual_size: u32,
+    // virtual_size: u32,
     virtual_address: u32,
     size_of_raw_data: u32,
     pointer_to_raw_data: u32,
@@ -63,10 +62,11 @@ impl PEFile {
         let opt_header_start = reader.stream_position()?;
         let magic = reader.read_u16()?;
         let image_base = match magic {
-            // PE32_MAGIC => {
-            //     reader.seek(SeekFrom::Current(26))?; // skip to image base
-            //     reader.read_u32()? as u64
-            // }
+            PE32_MAGIC => {
+                panic!("PE32 not supported");
+                // reader.seek(SeekFrom::Current(26))?; // skip to image base
+                // reader.read_u32()? as u64
+            }
             PE32_PLUS_MAGIC => {
                 reader.seek(SeekFrom::Current(22))?; // skip to image base
                 reader.read_u64()?
@@ -88,7 +88,7 @@ impl PEFile {
             let name = String::from_utf8(name[..index_of_nul].to_vec())
                 .map_err(|_| PEParseError::MalformedSectionName)?;
 
-            let virtual_size = reader.read_u32()?;
+            let _virtual_size = reader.read_u32()?;
             let virtual_address = reader.read_u32()?;
             let size_of_raw_data = reader.read_u32()?;
             let pointer_to_raw_data = reader.read_u32()?;
@@ -100,7 +100,7 @@ impl PEFile {
 
             sections.push(Section {
                 name,
-                virtual_size,
+                // virtual_size,
                 virtual_address,
                 size_of_raw_data,
                 pointer_to_raw_data,
@@ -207,6 +207,7 @@ pub trait ReadPEExt {
 }
 
 impl<R: Read + Seek> ReadPEExt for R {
+
     fn read_pointee<'a>(&mut self, file: &'a PEFile) -> std::io::Result<Cursor<&'a [u8]>> {
         file.va_to_fo(self.read_u64()?)
             .and_then(|offset| file.data.get(offset as usize..))
@@ -223,8 +224,9 @@ impl<R: Read + Seek> ReadPEExt for R {
 
         file.va_to_fo(va)
             .and_then(|offset| file.data.get(offset as usize..))
-            .map(|data| Cursor::new(data))
+            .map(Cursor::new)
             .map(Some)
             .ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Could not read pointee"))
     }
+
 }

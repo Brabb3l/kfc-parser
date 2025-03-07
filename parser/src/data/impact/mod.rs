@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use shared::hash::{fnv, fnv_const};
+use shared::hash::fnv_const;
 
 use crate::reflection::{TypeCollection, TypeFlags, TypeInfo};
 
@@ -18,7 +18,7 @@ impl TypeCollection {
     pub(super) fn get_impact_node_types(&self) -> HashMap<u32, &TypeInfo> {
         let mut nodes = HashMap::new();
 
-        for node in self.types_by_qualified_hash.values() {
+        for node in self.iter() {
             if node.flags.contains(TypeFlags::HAS_DS) {
                 continue;
             }
@@ -27,7 +27,7 @@ impl TypeCollection {
 
             for child_node in inheritance_chain {
                 if child_node.qualified_hash == IMPACT_NODE_HASH {
-                    nodes.insert(fnv(node.name.as_bytes()), node.as_ref());
+                    nodes.insert(node.name_hash, node);
                     break;
                 }
             }

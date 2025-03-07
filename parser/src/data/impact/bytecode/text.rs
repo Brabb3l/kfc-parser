@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 
+use crate::Hash32;
+
 use super::parser::Parser;
 use super::{ImpactNode, ImpactProgram, ImpactAssembler, ImpactOps, ImpactProgramData, ParseError};
 
@@ -113,7 +115,7 @@ impl ImpactAssembler<'_> {
         Ok(())
     }
 
-    fn get_call_type(&self, index: u32) -> Option<&ImpactNode> {
+    fn get_call_type(&self, index: Hash32) -> Option<&ImpactNode> {
         self.nodes.get(&index)
     }
     

@@ -80,4 +80,6 @@ pub enum WriteError {
     InvalidType(String),
     #[error("Malformed blob GUID: {0}")]
     MalformedBlobGuid(String),
+    #[error("Malformed descriptor GUID")]
+    MalformedDescriptorGuid,
 }

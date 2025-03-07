@@ -15,14 +15,14 @@ impl TypeCollection {
 
     pub(super) fn get_inner_type(&self, type_entry: &TypeInfo) -> &TypeInfo {
         type_entry.inner_type.as_ref()
-            .and_then(|t| self.get_type_by_qualified_hash(t.hash))
+            .and_then(|t| self.get_type(*t))
             .map(|t| self.unwrap_type_info(t))
             .expect("invalid inner type")
     }
 
     pub(super) fn get_inner_type_opt(&self, type_entry: &TypeInfo) -> Option<&TypeInfo> {
         type_entry.inner_type.as_ref()
-            .and_then(|t| self.get_type_by_qualified_hash(t.hash))
+            .and_then(|t| self.get_type(*t))
             .map(|t| self.unwrap_type_info(t))
     }
 

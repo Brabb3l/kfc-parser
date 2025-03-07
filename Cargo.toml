@@ -9,6 +9,9 @@ members = [
 [workspace.package]
 edition = "2021"
 version = "0.1.0"
+authors = ["Brabb3l"]
+license = "GPL-3.0-or-later"
+license-file = "LICENSE"
 
 [workspace.dependencies]
 anyhow = { version = "1.0.95", features = ["backtrace"] }

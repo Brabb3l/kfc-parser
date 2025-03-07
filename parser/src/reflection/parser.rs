@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
 
+use shared::hash::fnv;
 use shared::io::ReadExt;
 
 use super::pe_file::{PEFile, ReadPEExt};
@@ -41,15 +43,23 @@ pub fn extract_reflection_data(
     let start_position = table_cursor.stream_position()?;
     let table_count = cursor.read_u64()?;
 
+    let mut reference_table = HashMap::new();
+    let mut reference_table_cursor = table_cursor.clone();
+
+    for _ in 0..table_count {
+        let offset = reference_table_cursor.read_u64()?;
+        reference_table.insert(offset, reference_table.len());
+    }
+
     let mut table = Vec::with_capacity(table_count as usize);
 
     for _ in 0..table_count {
         let mut type_cursor = table_cursor.read_pointee(&pe_file)?;
-        let ty = read_type(&mut type_cursor, &pe_file, false)?;
+        let ty = read_type(&mut type_cursor, &pe_file, &reference_table, false)?;
 
         table.push(ty);
     }
-    
+
     if deserialize_default_values {
         table_cursor.seek(SeekFrom::Start(start_position))?;
         
@@ -124,6 +134,7 @@ pub fn extract_reflection_data(
 fn read_type(
     cursor: &mut Cursor<&[u8]>,
     pe_file: &PEFile,
+    reference_table: &HashMap<u64, usize>,
     skip_fields: bool
 ) -> std::io::Result<TypeInfo> {
     let name = cursor.read_pointee(pe_file)?
@@ -136,7 +147,7 @@ fn read_type(
     let namespace_cursor = cursor.read_pointee(pe_file)?;
     let namespace = read_namespace(namespace_cursor, pe_file)?;
 
-    let inner_type = read_type_ref(cursor, pe_file)?;
+    let inner_type = read_type_ref(cursor, reference_table)?;
 
     let size = cursor.read_u32()?;
     let alignment = cursor.read_u16()?;
@@ -151,7 +162,7 @@ fn read_type(
     let (struct_fields, enum_fields) = if !skip_fields {
         let struct_fields = cursor.read_pointee_opt(pe_file)?
             .map(|mut cursor| {
-                read_struct_fields(&mut cursor, field_count as u64, pe_file)
+                read_struct_fields(&mut cursor, field_count as u64, pe_file, reference_table)
             })
             .transpose()?
             .unwrap_or_else(Vec::new);
@@ -176,12 +187,15 @@ fn read_type(
     let attributes_cursor = cursor.read_pointee_opt(pe_file)?;
     let attributes_count = cursor.read_u64()?;
     let attributes = attributes_cursor.map(|mut cursor| {
-        read_attributes(&mut cursor, attributes_count, pe_file)
+        read_attributes(&mut cursor, attributes_count, pe_file, reference_table)
     })
         .transpose()?
         .unwrap_or_else(Vec::new);
 
     Ok(TypeInfo {
+        name_hash: fnv(&name),
+        impact_hash: fnv(&impact_name),
+
         name,
         impact_name,
         qualified_name,
@@ -241,11 +255,12 @@ fn read_struct_fields(
     cursor: &mut Cursor<&[u8]>,
     count: u64,
     pe_file: &PEFile,
+    reference_table: &HashMap<u64, usize>,
 ) -> std::io::Result<Vec<StructFieldInfo>> {
     let mut fields = Vec::with_capacity(count as usize);
 
     for _ in 0..count {
-        fields.push(read_struct_field(cursor, pe_file)?);
+        fields.push(read_struct_field(cursor, pe_file, reference_table)?);
     }
 
     Ok(fields)
@@ -266,17 +281,18 @@ fn read_struct_fields(
 fn read_struct_field(
     cursor: &mut Cursor<&[u8]>,
     pe_file: &PEFile,
+    reference_table: &HashMap<u64, usize>,
 ) -> std::io::Result<StructFieldInfo> {
     let name = cursor.read_pointee(pe_file)?
         .read_string(cursor.read_u64()? as usize)?;
-    let type_info = read_type_ref(cursor, pe_file)?
+    let type_info = read_type_ref(cursor, reference_table)?
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "TypeRef is None"))?;
     let data_offset = cursor.read_u64()?;
     let attributes_cursor = cursor.read_pointee_opt(pe_file)?;
     let attribute_count = cursor.read_u64()?;
 
     let attributes = attributes_cursor.map(|mut cursor| {
-        read_attributes(&mut cursor, attribute_count, pe_file)
+        read_attributes(&mut cursor, attribute_count, pe_file, reference_table)
     })
         .transpose()?
         .unwrap_or_else(Vec::new);
@@ -333,11 +349,12 @@ fn read_attributes(
     cursor: &mut Cursor<&[u8]>,
     count: u64,
     pe_file: &PEFile,
+    reference_table: &HashMap<u64, usize>,
 ) -> std::io::Result<Vec<Attribute>> {
     let mut attributes = Vec::with_capacity(count as usize);
 
     for _ in 0..count {
-        attributes.push(read_attribute(cursor, pe_file)?);
+        attributes.push(read_attribute(cursor, pe_file, reference_table)?);
     }
 
     Ok(attributes)
@@ -362,6 +379,7 @@ fn read_attributes(
 fn read_attribute(
     cursor: &mut Cursor<&[u8]>,
     pe_file: &PEFile,
+    reference_table: &HashMap<u64, usize>,
 ) -> std::io::Result<Attribute> {
     let mut data_cursor = cursor.read_pointee(pe_file)?;
     let value = cursor.read_pointee(pe_file)?
@@ -371,7 +389,7 @@ fn read_attribute(
     let namespace = read_namespace(data_cursor.read_pointee(pe_file)?, pe_file)?;
     let name = data_cursor.read_pointee(pe_file)?
         .read_string(data_cursor.read_u64()? as usize)?;
-    let r#type = read_type_ref(&mut data_cursor, pe_file)?;
+    let r#type = read_type_ref(&mut data_cursor, reference_table)?;
 
     Ok(Attribute {
         name,
@@ -412,20 +430,13 @@ fn read_namespace(
 
 fn read_type_ref(
     cursor: &mut Cursor<&[u8]>,
-    pe_file: &PEFile,
-) -> std::io::Result<Option<TypeRef>> {
-    cursor.read_pointee_opt(pe_file)?
-        .map(|mut cursor| {
-            let ty = read_type(
-                &mut cursor,
-                pe_file,
-                true
-            )?;
+    reference_table: &HashMap<u64, usize>,
+) -> std::io::Result<Option<usize>> {
+    let offset = cursor.read_u64()?;
 
-            Ok(TypeRef {
-                name: ty.qualified_name,
-                hash: ty.qualified_hash,
-            })
-        })
-        .transpose()
+    if offset == 0 {
+        return Ok(None);
+    }
+
+    Ok(reference_table.get(&offset).copied())
 }

@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
-use crate::reflection::TypeCollection;
+use crate::{reflection::TypeCollection, Hash32};
 
 use super::{ImpactNode, ImpactCommand};
 
 #[derive(Debug)]
 pub struct ImpactAssembler<'a> {
     pub(super) type_collection: &'a TypeCollection,
-    pub(super) nodes: HashMap<u32, ImpactNode<'a>>,
+    pub(super) nodes: HashMap<Hash32, ImpactNode<'a>>,
 }
 
 impl<'a> ImpactAssembler<'a> {

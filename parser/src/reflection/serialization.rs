@@ -1,36 +1,28 @@
-use std::io::{Cursor, Seek, SeekFrom, Write};
+
+use std::io::{Cursor, Read, Write, Seek, SeekFrom};
 use std::str::FromStr;
 
-use serde_json::Value as JsonValue;
-use shared::io::WriteExt;
+use serde_json::{Map, Value as JsonValue};
+use shared::io::{ReadExt, ReadSeekExt, WriteExt};
 
-use crate::guid::BlobGuid;
+use crate::guid::{BlobGuid, DescriptorGuid};
+use crate::Hash32;
 
 use super::types::*;
-use super::{TypeCollection, WriteError};
+use super::{TypeCollection, ReadError, WriteError};
 
 impl TypeCollection {
-    pub fn serialize_into_by_hash(
-        &self,
-        type_hash: u32,
-        value: &JsonValue,
-        dst: &mut Vec<u8>
-    ) -> Result<(), WriteError> {
-        let type_info = self.get_type_by_qualified_hash(type_hash)
-            .ok_or(WriteError::UnknownType(type_hash))?;
 
-        self.serialize_into(type_info, value, dst)
-    }
-    
-    pub fn serialize_by_hash(
+    pub fn serialize(
         &self,
-        type_info: u32,
+        type_info: &TypeInfo,
         value: &JsonValue
     ) -> Result<Vec<u8>, WriteError> {
-        let type_entry = self.get_type_by_qualified_hash(type_info)
-            .ok_or(WriteError::UnknownType(type_info))?;
+        let mut result = Vec::new();
 
-        self.serialize(type_entry, value)
+        Self::serialize_into(self, type_info, value, &mut result)?;
+
+        Ok(result)
     }
     
     pub fn serialize_into(
@@ -46,19 +38,56 @@ impl TypeCollection {
 
         Ok(())
     }
-
-    pub fn serialize(
+    
+    pub fn serialize_by_hash(
         &self,
-        type_info: &TypeInfo,
+        type_info: Hash32,
         value: &JsonValue
     ) -> Result<Vec<u8>, WriteError> {
-        let mut writer = Cursor::new(Vec::new());
-        let mut blob_offset = type_info.size as u64;
-        
-        self.write_type(type_info, &mut writer, value, &mut blob_offset, 0)?;
+        let type_entry = self.get_type_by_qualified_hash(type_info)
+            .ok_or(WriteError::UnknownType(type_info))?;
 
-        Ok(writer.into_inner())
+        self.serialize(type_entry, value)
     }
+
+    pub fn serialize_into_by_hash(
+        &self,
+        type_hash: Hash32,
+        value: &JsonValue,
+        dst: &mut Vec<u8>
+    ) -> Result<(), WriteError> {
+        let type_info = self.get_type_by_qualified_hash(type_hash)
+            .ok_or(WriteError::UnknownType(type_hash))?;
+
+        self.serialize_into(type_info, value, dst)
+    }
+
+    pub fn deserialize(
+        &self,
+        type_entry: &TypeInfo,
+        data: &[u8]
+    ) -> Result<JsonValue, ReadError> {
+        let mut reader = Cursor::new(data);
+
+        Self::read_type(self, type_entry, &mut reader, 0)
+    }
+
+    pub fn deserialize_by_hash(
+        &self,
+        type_hash: Hash32,
+        data: &[u8]
+    ) -> Result<JsonValue, ReadError> {
+        let type_entry = self.get_type_by_qualified_hash(type_hash)
+            .ok_or(ReadError::UnknownType(type_hash))?;
+
+        Self::deserialize(self, type_entry, data)
+    }
+
+}
+
+// TODO: Record path for better error messages
+
+impl TypeCollection {
 
     fn write_type<W: Write + Seek>(
         &self,
@@ -185,17 +214,14 @@ impl TypeCollection {
                 if let Some(value) = value.as_f64() {
                     writer.write_f32(value as f32)?;
                 } else if let Some(value) = value.as_str() {
-                    if value == "NaN" {
-                        writer.write_f32(f32::NAN)?;
-                    } else if value == "+inf" {
-                        writer.write_f32(f32::INFINITY)?;
-                    } else if value == "-inf" {
-                        writer.write_f32(f32::NEG_INFINITY)?;
-                    } else {
-                        return Err(WriteError::IncompatibleType {
+                    match value.to_ascii_lowercase().as_str() {
+                        "nan" => writer.write_f32(f32::NAN)?,
+                        "+inf" | "+infinity" | "inf" | "infinity" => writer.write_f32(f32::INFINITY)?,
+                        "-inf" | "-infinity" => writer.write_f32(f32::NEG_INFINITY)?,
+                        _ => return Err(WriteError::IncompatibleType {
                             got: value.to_string(),
                             expected: "f32".to_string()
-                        });
+                        })
                     }
                 } else {
                     return Err(WriteError::IncompatibleType {
@@ -208,17 +234,14 @@ impl TypeCollection {
                 if let Some(value) = value.as_f64() {
                     writer.write_f64(value)?;
                 } else if let Some(value) = value.as_str() {
-                    if value == "NaN" {
-                        writer.write_f64(f64::NAN)?;
-                    } else if value == "+inf" {
-                        writer.write_f64(f64::INFINITY)?;
-                    } else if value == "-inf" {
-                        writer.write_f64(f64::NEG_INFINITY)?;
-                    } else {
-                        return Err(WriteError::IncompatibleType {
+                    match value.to_ascii_lowercase().as_str() {
+                        "nan" => writer.write_f64(f64::NAN)?,
+                        "+inf" | "+infinity" | "inf" | "infinity" => writer.write_f64(f64::INFINITY)?,
+                        "-inf" | "-infinity" => writer.write_f64(f64::NEG_INFINITY)?,
+                        _ => return Err(WriteError::IncompatibleType {
                             got: value.to_string(),
                             expected: "f64".to_string()
-                        });
+                        })
                     }
                 } else {
                     return Err(WriteError::IncompatibleType {
@@ -292,7 +315,7 @@ impl TypeCollection {
                             .find(|(name, _)| name == &&field.name)
                             .ok_or_else(|| WriteError::MissingField(field.name.clone()))?;
                         
-                        let field_type = self.get_type_by_qualified_hash(field.r#type.hash)
+                        let field_type = self.get_type(field.r#type)
                             .expect("invalid field type");
 
                         Self::write_type(
@@ -483,9 +506,12 @@ impl TypeCollection {
                 }
             }
             PrimitiveType::ObjectReference => {
-                if let Some(value) = value.as_str() {
-                    BlobGuid::from_str(value)
-                        .map_err(WriteError::MalformedBlobGuid)?
+                if value.is_null() {
+                    BlobGuid::NONE.write(writer)?;
+                } else if let Some(value) = value.as_str() {
+                    DescriptorGuid::from_str(value, 0, 0)
+                        .ok_or(WriteError::MalformedDescriptorGuid)?
+                        .as_blob_guid()
                         .write(writer)?;
                 } else {
                     return Err(WriteError::IncompatibleType {
@@ -495,7 +521,9 @@ impl TypeCollection {
                 }
             }
             PrimitiveType::Guid => {
-                if let Some(value) = value.as_str() {
+                if value.is_null() {
+                    BlobGuid::NONE.write(writer)?;
+                } else if let Some(value) = value.as_str() {
                     BlobGuid::from_str(value)
                         .map_err(WriteError::MalformedBlobGuid)?
                         .write(writer)?;
@@ -517,6 +545,322 @@ impl TypeCollection {
         }
 
         Ok(())
+    }
+
+    fn read_type<R: Read + Seek>(
+        &self,
+        type_entry: &TypeInfo,
+        reader: &mut R,
+        base_offset: u64
+    ) -> Result<JsonValue, ReadError> {
+        reader.seek(SeekFrom::Start(base_offset))?;
+
+        let value = match type_entry.primitive_type {
+            PrimitiveType::None => JsonValue::Null,
+            PrimitiveType::Bool => JsonValue::Bool(reader.read_u8()? != 0),
+            PrimitiveType::UInt8 => JsonValue::Number(reader.read_u8()?.into()),
+            PrimitiveType::SInt8 => JsonValue::Number(reader.read_i8()?.into()),
+            PrimitiveType::UInt16 => JsonValue::Number(reader.read_u16()?.into()),
+            PrimitiveType::SInt16 => JsonValue::Number(reader.read_i16()?.into()),
+            PrimitiveType::UInt32 => JsonValue::Number(reader.read_u32()?.into()),
+            PrimitiveType::SInt32 => JsonValue::Number(reader.read_i32()?.into()),
+            PrimitiveType::UInt64 => JsonValue::Number(reader.read_u64()?.into()),
+            PrimitiveType::SInt64 => JsonValue::Number(reader.read_i64()?.into()),
+            PrimitiveType::Float32 => {
+                let value = reader.read_f32()?;
+
+                if let Some(value) = serde_json::Number::from_f64(value as f64) {
+                    JsonValue::Number(value)
+                } else {
+                    JsonValue::String(value.to_string())
+                }
+            },
+            PrimitiveType::Float64 => {
+                let value = reader.read_f64()?;
+
+                if let Some(value) = serde_json::Number::from_f64(value) {
+                    JsonValue::Number(value)
+                } else {
+                    JsonValue::String(value.to_string())
+                }
+            },
+            PrimitiveType::Enum => {
+                let enum_value_type = self.get_inner_type(type_entry);
+                let enum_value_raw = match enum_value_type.primitive_type {
+                    PrimitiveType::SInt8 => reader.read_i8()? as u64,
+                    PrimitiveType::SInt16 => reader.read_i16()? as u64,
+                    PrimitiveType::SInt32 => reader.read_i32()? as u64,
+                    PrimitiveType::SInt64 => reader.read_i64()? as u64,
+                    PrimitiveType::UInt8 => reader.read_u8()? as u64,
+                    PrimitiveType::UInt16 => reader.read_u16()? as u64,
+                    PrimitiveType::UInt32 => reader.read_u32()? as u64,
+                    PrimitiveType::UInt64 => reader.read_u64()?,
+                    _ => panic!("Unsupported enum value type: {:?}", enum_value_type)
+                };
+                
+                let enum_name = type_entry.enum_fields
+                    .iter()
+                    .find(|f| f.value == enum_value_raw)
+                    .map(|s| s.name.clone())
+                    .unwrap_or_else(|| enum_value_raw.to_string());
+
+                JsonValue::String(enum_name)
+            },
+            PrimitiveType::Bitmask8 => {
+                let bitmask_type = self.get_inner_type(type_entry);
+                let value = reader.read_u8()?;
+                let mut bits = Vec::with_capacity(value.count_ones() as usize);
+                let mut checked_bits = 0;
+                
+                for enum_field in &bitmask_type.enum_fields {
+                    let enum_value = enum_field.value as u8;
+                    let enum_name = &enum_field.name;
+                    
+                    checked_bits |= 1 << enum_value;
+
+                    if value & (1 << enum_value) != 0 {
+                        bits.push(JsonValue::String(enum_name.clone()));
+                    }
+                }
+                
+                // check for unknown bits
+                if value.count_ones() != bits.len() as u32 {
+                    for i in 0..8 {
+                        if checked_bits & (1 << i) == 0 && value & (1 << i) != 0 {
+                            bits.push(JsonValue::Number(i.into()));
+                        }
+                    }
+                }
+                
+                JsonValue::Array(bits)
+            },
+            PrimitiveType::Bitmask16 => {
+                let bitmask_type = self.get_inner_type(type_entry);
+                let value = reader.read_u16()?;
+                let mut bits = Vec::with_capacity(value.count_ones() as usize);
+                
+                for enum_field in &bitmask_type.enum_fields {
+                    let enum_value = enum_field.value as u16;
+                    let enum_name = &enum_field.name;
+
+                    if value & (1 << enum_value) != 0 {
+                        bits.push(JsonValue::String(enum_name.clone()));
+                    }
+                }
+                
+                JsonValue::Array(bits)
+            }
+            PrimitiveType::Bitmask32 => {
+                let bitmask_type = self.get_inner_type(type_entry);
+                let value = reader.read_u32()?;
+                let mut bits = Vec::with_capacity(value.count_ones() as usize);
+                
+                for enum_field in &bitmask_type.enum_fields {
+                    let enum_value = enum_field.value as u32;
+                    let enum_name = &enum_field.name;
+
+                    if value & (1 << enum_value) != 0 {
+                        bits.push(JsonValue::String(enum_name.clone()));
+                    }
+                }
+                
+                JsonValue::Array(bits)
+            }
+            PrimitiveType::Bitmask64 => {
+                let bitmask_type = self.get_inner_type(type_entry);
+                let value = reader.read_u64()?;
+                let mut bits = Vec::with_capacity(value.count_ones() as usize);
+                
+                for enum_field in &bitmask_type.enum_fields {
+                    let enum_value = enum_field.value;
+                    let enum_name = &enum_field.name;
+
+                    if value & (1 << enum_value) != 0 {
+                        bits.push(JsonValue::String(enum_name.clone()));
+                    }
+                }
+                
+                JsonValue::Array(bits)
+            }
+            PrimitiveType::Typedef => {
+                let typedef_type = self.get_inner_type(type_entry);
+                
+                self.read_type(
+                    typedef_type,
+                    reader,
+                    base_offset
+                )?
+            },
+            PrimitiveType::Struct => {
+                let mut map = Map::new();
+                
+                if let Some(parent_type) = self.get_inner_type_opt(type_entry) {
+                    let parent_value = self.read_type(
+                        parent_type,
+                        reader,
+                        base_offset
+                    )?;
+                    
+                    if let JsonValue::Object(parent_map) = parent_value {
+                        map.extend(parent_map);
+                    } else {
+                        unreachable!("expected object");
+                    }
+                }
+
+                for field in &type_entry.struct_fields {
+                    let field_type = self.get_type(field.r#type)
+                        .expect("invalid field type");
+                    
+                    let field_value = self.read_type(
+                        field_type,
+                        reader,
+                        base_offset + field.data_offset
+                    )?;
+                    
+                    map.insert(field.name.to_string(), field_value);
+                }
+                
+                JsonValue::Object(map)
+            },
+            PrimitiveType::StaticArray => {
+                let component_type = self.get_inner_type(type_entry);
+                let mut values = Vec::new();
+                
+                for i in 0..type_entry.field_count {
+                    let offset = (i * component_type.size) as u64 + base_offset;
+                    let value = self.read_type(
+                        component_type,
+                        reader,
+                        offset
+                    )?;
+                    
+                    values.push(value);
+                }
+                
+                JsonValue::Array(values)
+            },
+            PrimitiveType::DsArray => unreachable!(),
+            PrimitiveType::DsString => unreachable!(),
+            PrimitiveType::DsOptional => unreachable!(),
+            PrimitiveType::DsVariant => unreachable!(),
+            PrimitiveType::BlobArray => {
+                let component_type = self.get_inner_type(type_entry);
+                let mut values = Vec::new();
+                
+                let mut offset = reader.read_u32_offset()?;
+                let count = reader.read_u32()?;
+                
+                for _ in 0..count {
+                    let value = self.read_type(
+                        component_type,
+                        reader,
+                        offset
+                    )?;
+                    
+                    values.push(value);
+                    offset += component_type.size as u64;
+                }
+                
+                JsonValue::Array(values)
+            },
+            PrimitiveType::BlobString => {
+                let relative_offset = reader.read_u32()?;
+                
+                if relative_offset != 0 {
+                    let offset = base_offset + relative_offset as u64;
+                    let length = reader.read_u32()?;
+
+                    reader.seek(SeekFrom::Start(offset))?;
+
+                    let mut data = vec![0; length as usize];
+                    reader.read_exact(&mut data)?;
+
+                    let value = String::from_utf8(data)?;
+
+                    JsonValue::String(value)
+                } else {
+                    JsonValue::Null
+                }
+            },
+            PrimitiveType::BlobOptional => {
+                let component_type = self.get_inner_type_opt(type_entry);
+                let offset = reader.read_u32()? as u64;
+                
+                if offset == 0 {
+                    JsonValue::Null
+                } else if let Some(component_type) = component_type {
+                    self.read_type(
+                        component_type,
+                        reader,
+                        base_offset + offset
+                    )?
+                } else {
+                    JsonValue::Null
+                }
+            },
+            PrimitiveType::BlobVariant => {
+                let variant_type_hash = reader.read_u32()?;
+                let relative_offset = reader.read_u32()?;
+                let _size = reader.read_u32()?;
+
+                if relative_offset == 0 {
+                    JsonValue::Null
+                } else {
+                    let offset = base_offset + relative_offset as u64 + 4;
+                    let variant_type = self.get_type_by_qualified_hash(variant_type_hash)
+                        .ok_or(ReadError::InvalidTypeHash(variant_type_hash))?;
+                    
+                    let mut object = Map::new();
+                    
+                    object.insert("$type".into(), JsonValue::String(variant_type.qualified_name.clone()));
+                    object.insert("$value".into(), self.read_type(
+                        variant_type,
+                        reader,
+                        offset
+                    )?);
+                    
+                    JsonValue::Object(object)
+                }
+            },
+            PrimitiveType::ObjectReference => {
+                let guid = BlobGuid::read(reader)?;
+
+                if guid.is_none() {
+                    JsonValue::Null
+                } else {
+                    JsonValue::String(guid.as_descriptor_guid(0, 0).to_string())
+                }
+            },
+            PrimitiveType::Guid => {
+                let guid = BlobGuid::read(reader)?;
+                
+                if guid.is_none() {
+                    JsonValue::Null
+                } else {
+                    JsonValue::String(guid.to_string())
+                }
+            },
+        };
+
+        Ok(value)
+    }
+
+    fn resolve_enum_value(&self, type_entry: &TypeInfo, value: &str) -> Result<u64, WriteError> {
+        let enum_value = type_entry.enum_fields.iter()
+            .find(|field| field.name.as_str() == value);
+
+        if let Some(field) = enum_value {
+            Ok(field.value)
+        } else {
+            Err(WriteError::InvalidEnumValue {
+                got: value.to_string(),
+                expected: type_entry.enum_fields
+                    .iter()
+                    .map(|field| field.name.clone())
+                    .collect()
+            })
+        }
     }
 
     fn parse_bitmask_value(&self, type_entry: &TypeInfo, value: &JsonValue) -> Result<u64, WriteError> {
@@ -546,22 +890,4 @@ impl TypeCollection {
         }
     }
 
-    fn resolve_enum_value(&self, type_entry: &TypeInfo, value: &str) -> Result<u64, WriteError> {
-        let enum_value = type_entry.enum_fields.iter()
-            .find(|field| field.name.as_str() == value);
-
-        if let Some(field) = enum_value {
-            Ok(field.value)
-        } else {
-            Err(WriteError::InvalidEnumValue {
-                got: value.to_string(),
-                expected: type_entry.enum_fields
-                    .iter()
-                    .map(|field| field.name.clone())
-                    .collect()
-            })
-        }
-    }
-
 }
-
