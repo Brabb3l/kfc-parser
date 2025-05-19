@@ -62,12 +62,12 @@ pub fn extract_reflection_data(
 
     if deserialize_default_values {
         table_cursor.seek(SeekFrom::Start(start_position))?;
-        
+
         let mut type_collection = TypeCollection::default();
         let mut values = Vec::with_capacity(table_count as usize);
-        
+
         type_collection.extend(table);
-        
+
         for _ in 0..table_count {
             let mut type_cursor = table_cursor.read_pointee(&pe_file)?;
             let value = read_default_value(
@@ -75,12 +75,12 @@ pub fn extract_reflection_data(
                 &pe_file,
                 &type_collection,
             )?;
-            
+
             values.push(value);
         }
-        
+
         table = type_collection.into_inner().unwrap();
-        
+
         for (ty, value) in table.iter_mut().zip(values) {
             ty.default_value = value;
         }
@@ -90,7 +90,7 @@ pub fn extract_reflection_data(
 }
 
 /// # Layout
-/// 
+///
 /// ```c
 /// struct TypeInfo {
 ///     char* name_ptr;
@@ -118,7 +118,7 @@ pub fn extract_reflection_data(
 ///     Attribute* attributes_ptr;
 ///     u64 attributes_count;
 /// }
-/// 
+///
 /// enum TypeFlags : u8 {
 ///     None = 0x00,
 ///     HasDS = 0x01,
@@ -166,7 +166,7 @@ fn read_type(
             })
             .transpose()?
             .unwrap_or_else(Vec::new);
-        
+
         let enum_fields = cursor.read_pointee_opt(pe_file)?
             .map(|mut cursor| {
                 read_enum_fields(&mut cursor, field_count as u64, pe_file)
@@ -183,7 +183,7 @@ fn read_type(
     cursor.seek_relative(8)?; // skip variant_type
     cursor.seek_relative(8)?; // skip default_value_ptr
     cursor.seek_relative(8)?; // skip default_value_len
-    
+
     let attributes_cursor = cursor.read_pointee_opt(pe_file)?;
     let attributes_count = cursor.read_u64()?;
     let attributes = attributes_cursor.map(|mut cursor| {
@@ -223,22 +223,22 @@ fn read_default_value(
 ) -> std::io::Result<Option<serde_json::Value>> {
     cursor.seek_relative(0x50)?; // skip to qualified_hash
     let qualified_hash = cursor.read_u32()?;
-    
+
     cursor.seek_relative(0x20 - 0x04)?; // skip to default_value_ptr
-    
+
     let default_value_cursor = cursor.read_pointee_opt(pe_file)?;
     let default_value_len = cursor.read_u64()?;
-    
+
     if let Some(mut cursor) = default_value_cursor {
         let type_info = type_collection.get_type_by_qualified_hash(qualified_hash)
             .ok_or_else(|| std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!("Failed to find type by hash: {}", qualified_hash)
             ))?;
-        
+
         let mut value = vec![0; default_value_len as usize];
         cursor.read_exact(&mut value)?;
-        
+
         let value = type_collection.deserialize(type_info, &value)
             .map_err(|e| std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -336,9 +336,9 @@ fn read_enum_field(
     let name = cursor.read_pointee(pe_file)?
         .read_string(cursor.read_u64()? as usize)?;
     let value = cursor.read_u64()?;
-    
+
     cursor.padding(16)?;
-    
+
     Ok(EnumFieldInfo {
         name,
         value,
@@ -361,14 +361,14 @@ fn read_attributes(
 }
 
 /// # Layout
-/// 
+///
 /// ```c
 /// struct Attribute {
 ///     AttributeInfo* info;
 ///     char* value_ptr;
 ///     u64 value_len;
 /// }
-/// 
+///
 /// struct AttributeInfo {
 ///     Namespace* namespace;
 ///     char* name_ptr;
@@ -400,7 +400,7 @@ fn read_attribute(
 }
 
 /// # Layout
-/// 
+///
 /// ```c
 /// struct Namespace {
 ///     char* name_ptr;
@@ -422,7 +422,7 @@ fn read_namespace(
         namespaces.push(name);
         parent_cursor = cursor.read_pointee_opt(pe_file)?;
     }
-    
+
     namespaces.reverse();
 
     Ok(namespaces)

@@ -638,4 +638,3 @@ fn copy_block_buffer(
         //     .copy_from_slice(&buffer[buffer_offset..buffer_offset + copy_width]);
     }
 }
-

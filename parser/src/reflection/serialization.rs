@@ -23,7 +23,7 @@ impl TypeCollection {
 
         Ok(result)
     }
-    
+
     pub fn serialize_into(
         &self,
         type_info: &TypeInfo,
@@ -34,12 +34,12 @@ impl TypeCollection {
 
         let mut writer = Cursor::new(dst);
         let mut blob_offset = type_info.size as u64;
-        
+
         self.write_type(type_info, &mut writer, value, &mut blob_offset, 0)?;
 
         Ok(())
     }
-    
+
     pub fn serialize_descriptor(
         &self,
         value: &JsonValue
@@ -155,7 +155,7 @@ impl TypeCollection {
                         return Ok(());
                     }
                 }
-                
+
                 return Err(WriteError::IncompatibleType {
                     got: value.to_string(),
                     expected: "u8".to_string()
@@ -168,7 +168,7 @@ impl TypeCollection {
                         return Ok(());
                     }
                 }
-                
+
                 return Err(WriteError::IncompatibleType {
                     got: value.to_string(),
                     expected: "i8".to_string()
@@ -181,7 +181,7 @@ impl TypeCollection {
                         return Ok(());
                     }
                 }
-                
+
                 return Err(WriteError::IncompatibleType {
                     got: value.to_string(),
                     expected: "u16".to_string()
@@ -194,7 +194,7 @@ impl TypeCollection {
                         return Ok(());
                     }
                 }
-                
+
                 return Err(WriteError::IncompatibleType {
                     got: value.to_string(),
                     expected: "i16".to_string()
@@ -207,7 +207,7 @@ impl TypeCollection {
                         return Ok(());
                     }
                 }
-                
+
                 return Err(WriteError::IncompatibleType {
                     got: value.to_string(),
                     expected: "u32".to_string()
@@ -220,7 +220,7 @@ impl TypeCollection {
                         return Ok(());
                     }
                 }
-                
+
                 return Err(WriteError::IncompatibleType {
                     got: value.to_string(),
                     expected: "i32".to_string()
@@ -350,7 +350,7 @@ impl TypeCollection {
                         let (_, field_value) = fields.iter()
                             .find(|(name, _)| name == &&field.name)
                             .ok_or_else(|| WriteError::MissingField(field.name.clone()))?;
-                        
+
                         let field_type = self.get_type(field.r#type)
                             .expect("invalid field type");
 
@@ -633,7 +633,7 @@ impl TypeCollection {
                     PrimitiveType::UInt64 => reader.read_u64()?,
                     _ => panic!("Unsupported enum value type: {:?}", enum_value_type)
                 };
-                
+
                 let enum_name = type_entry.enum_fields
                     .iter()
                     .find(|f| f.value == enum_value_raw)
@@ -647,18 +647,18 @@ impl TypeCollection {
                 let value = reader.read_u8()?;
                 let mut bits = Vec::with_capacity(value.count_ones() as usize);
                 let mut checked_bits = 0;
-                
+
                 for enum_field in &bitmask_type.enum_fields {
                     let enum_value = enum_field.value as u8;
                     let enum_name = &enum_field.name;
-                    
+
                     checked_bits |= 1 << enum_value;
 
                     if value & (1 << enum_value) != 0 {
                         bits.push(JsonValue::String(enum_name.clone()));
                     }
                 }
-                
+
                 // check for unknown bits
                 if value.count_ones() != bits.len() as u32 {
                     for i in 0..8 {
@@ -667,14 +667,14 @@ impl TypeCollection {
                         }
                     }
                 }
-                
+
                 JsonValue::Array(bits)
             },
             PrimitiveType::Bitmask16 => {
                 let bitmask_type = self.get_inner_type(type_entry);
                 let value = reader.read_u16()?;
                 let mut bits = Vec::with_capacity(value.count_ones() as usize);
-                
+
                 for enum_field in &bitmask_type.enum_fields {
                     let enum_value = enum_field.value as u16;
                     let enum_name = &enum_field.name;
@@ -683,14 +683,14 @@ impl TypeCollection {
                         bits.push(JsonValue::String(enum_name.clone()));
                     }
                 }
-                
+
                 JsonValue::Array(bits)
             }
             PrimitiveType::Bitmask32 => {
                 let bitmask_type = self.get_inner_type(type_entry);
                 let value = reader.read_u32()?;
                 let mut bits = Vec::with_capacity(value.count_ones() as usize);
-                
+
                 for enum_field in &bitmask_type.enum_fields {
                     let enum_value = enum_field.value as u32;
                     let enum_name = &enum_field.name;
@@ -699,14 +699,14 @@ impl TypeCollection {
                         bits.push(JsonValue::String(enum_name.clone()));
                     }
                 }
-                
+
                 JsonValue::Array(bits)
             }
             PrimitiveType::Bitmask64 => {
                 let bitmask_type = self.get_inner_type(type_entry);
                 let value = reader.read_u64()?;
                 let mut bits = Vec::with_capacity(value.count_ones() as usize);
-                
+
                 for enum_field in &bitmask_type.enum_fields {
                     let enum_value = enum_field.value;
                     let enum_name = &enum_field.name;
@@ -715,12 +715,12 @@ impl TypeCollection {
                         bits.push(JsonValue::String(enum_name.clone()));
                     }
                 }
-                
+
                 JsonValue::Array(bits)
             }
             PrimitiveType::Typedef => {
                 let typedef_type = self.get_inner_type(type_entry);
-                
+
                 self.read_type(
                     typedef_type,
                     reader,
@@ -729,14 +729,14 @@ impl TypeCollection {
             },
             PrimitiveType::Struct => {
                 let mut map = Map::new();
-                
+
                 if let Some(parent_type) = self.get_inner_type_opt(type_entry) {
                     let parent_value = self.read_type(
                         parent_type,
                         reader,
                         base_offset
                     )?;
-                    
+
                     if let JsonValue::Object(parent_map) = parent_value {
                         map.extend(parent_map);
                     } else {
@@ -747,22 +747,22 @@ impl TypeCollection {
                 for field in &type_entry.struct_fields {
                     let field_type = self.get_type(field.r#type)
                         .expect("invalid field type");
-                    
+
                     let field_value = self.read_type(
                         field_type,
                         reader,
                         base_offset + field.data_offset
                     )?;
-                    
+
                     map.insert(field.name.to_string(), field_value);
                 }
-                
+
                 JsonValue::Object(map)
             },
             PrimitiveType::StaticArray => {
                 let component_type = self.get_inner_type(type_entry);
                 let mut values = Vec::new();
-                
+
                 for i in 0..type_entry.field_count {
                     let offset = (i * component_type.size) as u64 + base_offset;
                     let value = self.read_type(
@@ -770,10 +770,10 @@ impl TypeCollection {
                         reader,
                         offset
                     )?;
-                    
+
                     values.push(value);
                 }
-                
+
                 JsonValue::Array(values)
             },
             PrimitiveType::DsArray => unreachable!(),
@@ -783,26 +783,26 @@ impl TypeCollection {
             PrimitiveType::BlobArray => {
                 let component_type = self.get_inner_type(type_entry);
                 let mut values = Vec::new();
-                
+
                 let mut offset = reader.read_u32_offset()?;
                 let count = reader.read_u32()?;
-                
+
                 for _ in 0..count {
                     let value = self.read_type(
                         component_type,
                         reader,
                         offset
                     )?;
-                    
+
                     values.push(value);
                     offset += component_type.size as u64;
                 }
-                
+
                 JsonValue::Array(values)
             },
             PrimitiveType::BlobString => {
                 let relative_offset = reader.read_u32()?;
-                
+
                 if relative_offset != 0 {
                     let offset = base_offset + relative_offset as u64;
                     let length = reader.read_u32()?;
@@ -822,7 +822,7 @@ impl TypeCollection {
             PrimitiveType::BlobOptional => {
                 let component_type = self.get_inner_type_opt(type_entry);
                 let offset = reader.read_u32()? as u64;
-                
+
                 if offset == 0 {
                     JsonValue::Null
                 } else if let Some(component_type) = component_type {
@@ -846,16 +846,16 @@ impl TypeCollection {
                     let offset = base_offset + relative_offset as u64 + 4;
                     let variant_type = self.get_type_by_qualified_hash(variant_type_hash)
                         .ok_or(ReadError::InvalidTypeHash(variant_type_hash))?;
-                    
+
                     let mut object = Map::new();
-                    
+
                     object.insert("$type".into(), JsonValue::String(variant_type.qualified_name.clone()));
                     object.insert("$value".into(), self.read_type(
                         variant_type,
                         reader,
                         offset
                     )?);
-                    
+
                     JsonValue::Object(object)
                 }
             },
@@ -870,7 +870,7 @@ impl TypeCollection {
             },
             PrimitiveType::Guid => {
                 let guid = BlobGuid::read(reader)?;
-                
+
                 if guid.is_none() {
                     JsonValue::Null
                 } else {

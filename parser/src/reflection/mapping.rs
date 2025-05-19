@@ -68,7 +68,7 @@ impl<'a> DescriptorNameMapper<'a> {
                 type_info.struct_fields.iter()
                     .filter(|field| {
                         let type_info = self.type_collection.get_type(field.r#type).unwrap();
-                        
+
                         type_info.qualified_hash == LOCA_TAG_REFERENCE ||
                         type_info.qualified_hash == NAME_LOCA_TAG
                     })
@@ -112,7 +112,7 @@ impl<'a> DescriptorNameMapper<'a> {
         let debug_name = type_info
             .and_then(|type_info| {
                 type_info.struct_fields.iter()
-                    .filter(|field| 
+                    .filter(|field|
                         self.type_collection.resolve_typedef(
                             self.type_collection.get_type(field.r#type).unwrap()
                         ).primitive_type == PrimitiveType::BlobString

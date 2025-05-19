@@ -35,10 +35,10 @@ impl DescriptorGuid {
         }
     }
 
-    /// Create a new DescriptorGuid from a string with following format:  
-    /// `XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX`  
+    /// Create a new DescriptorGuid from a string with following format:
+    /// `XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX`
     /// where `X` is a hexadecimal digit.
-    /// 
+    ///
     /// If the string is not in the correct format, `None` is returned.
     pub fn from_str(s: &str, type_hash: Hash32, part_number: u32) -> Option<Self> {
         if s.len() != 36 {
@@ -49,7 +49,7 @@ impl DescriptorGuid {
             !is_separator(s[8..].chars().next().unwrap()) ||
             !is_hex_slice(&s[9..13]) ||
             !is_separator(s[13..].chars().next().unwrap()) ||
-            !is_hex_slice(&s[14..18]) || 
+            !is_hex_slice(&s[14..18]) ||
             !is_separator(s[18..].chars().next().unwrap()) ||
             !is_hex_slice(&s[19..23]) ||
             !is_separator(s[23..].chars().next().unwrap()) ||
@@ -77,7 +77,7 @@ impl DescriptorGuid {
     /// Create a new DescriptorGuid from a string with following format:
     /// `XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX_XXXXXXXX_N`
     /// where `X` is a hexadecimal digit.
-    /// 
+    ///
     /// If the string is not in the correct format, `None` is returned.
     pub fn from_qualified_str(s: &str) -> Option<Self> {
         if s.len() < 47 {
@@ -100,7 +100,7 @@ impl DescriptorGuid {
     /// Convert the DescriptorGuid to a string with following format:
     /// `XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX`
     /// where `X` is a hexadecimal digit.
-    /// 
+    ///
     /// Type hash and part number are not included in the string.
     #[allow(clippy::inherent_to_string_shadow_display)] // this is intentional
     pub fn to_string(&self) -> String {
@@ -238,18 +238,18 @@ mod test {
     #[test]
     fn test_guid_qualified_string() {
         const GUID: &str = "40e6ba42-a397-5790-a5c9-a4151fffe1c5_647628d6_420";
-        
+
         let guid = super::DescriptorGuid::from_qualified_str(GUID).unwrap();
-        
+
         assert_eq!(guid.to_qualified_string(), GUID);
     }
 
     #[test]
     fn test_guid_string() {
         const GUID: &str = "40e6ba42-a397-5790-a5c9-a4151fffe1c5";
-        
+
         let guid = super::DescriptorGuid::from_str(GUID, 0, 0).unwrap();
-        
+
         assert_eq!(guid.to_string(), GUID);
     }
 }

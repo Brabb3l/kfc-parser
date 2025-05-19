@@ -4,7 +4,7 @@ use thiserror::Error;
 pub enum PEParseError {
     #[error("IO error: {0}")]
     IO(#[from] std::io::Error),
-    
+
     #[error("Invalid DOS signature")]
     InvalidDosSignature,
     #[error("Invalid NT signature")]
@@ -21,7 +21,7 @@ pub enum ReflectionParseError {
     IO(#[from] std::io::Error),
     #[error("PE parse error: {0}")]
     PEParse(#[from] PEParseError),
-    
+
     #[error("Missing .data section")]
     MissingDataSection,
     #[error("Missing .rdata section")]

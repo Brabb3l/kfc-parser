@@ -88,7 +88,7 @@ fn main() {
             }
         }
     };
-    
+
     match result {
         Ok(()) => {},
         Err(e) => {
@@ -117,7 +117,7 @@ fn unpack(
     if !kfc_file.exists() {
         fatal!("enshrouded.kfc file not found: {}", kfc_file.display());
     }
-    
+
     let type_collection = load_type_collection(Some(game_dir), true)?;
 
     info!("Unpacking {} to {}", kfc_file.display(), output_dir.display());
@@ -321,7 +321,7 @@ fn unpack(
     let end = std::time::Instant::now();
 
     info!("Unpacked a total of {}/{} descriptors in {:?}", total - failed_unpacks, total, end - start);
-    
+
     Ok(())
 }
 
@@ -372,9 +372,9 @@ fn repack(
         .filter(|e| e.path().extension().map(|x| x == "json").unwrap_or(false))
         .map(|e| e.path().to_path_buf())
         .collect::<Vec<_>>();
-    
+
     let result = repack0(&kfc_path, &mut kfc_file, files, &type_collection, thread_count);
-    
+
     match result {
         Ok(()) => Ok(()),
         Err(e) => {
@@ -394,7 +394,7 @@ fn repack0(
     if files.is_empty() {
         fatal!("No files found to repack");
     }
-    
+
     let mut writer = match KFCWriter::new(kfc_path, kfc_file, type_collection) {
         Ok(writer) => writer,
         Err(e) => fatal!("Failed to open enshrouded.kfc: {}", e)
@@ -402,7 +402,7 @@ fn repack0(
 
     let total = files.len() as u64;
     let mpb = MultiProgress::new();
-    
+
     let pb_serialize = mpb.add(ProgressBar::new(total));
     pb_serialize.set_style(ProgressStyle::default_bar()
         .template(&format!("{} Serializing... [{{bar:40}}] {{pos:>7}}/{{len:7}} {{msg}}", "info:".blue().bold()))
@@ -414,13 +414,13 @@ fn repack0(
         .template(&format!("{} Writing... [{{bar:40}}] {{pos:>7}}/{{len:7}} {{msg}}", "info:".blue().bold()))
         .unwrap()
         .progress_chars("##-"));
-    
+
     let total = files.len() as u32;
     let pending_files = Mutex::new(files.into_iter().collect::<Vec<_>>());
     let (tx, rx) = std::sync::mpsc::sync_channel(1024);
     let failed_repacks = AtomicU32::new(0);
     let start = std::time::Instant::now();
-    
+
     let result = std::thread::scope(|s| {
         let failed_repacks = &failed_repacks;
         let pending_files = &pending_files;
@@ -433,7 +433,7 @@ fn repack0(
 
         for _ in 0..thread_count {
             let tx = tx.clone();
-            
+
             let handle = s.spawn(move || {
                 loop {
                     let file = {
@@ -466,33 +466,33 @@ fn repack0(
                             });
                         }
                     }
-                    
+
                     pb_serialize.inc(1);
                 }
             });
 
             handles.push(handle);
         }
-        
+
         drop(tx);
-        
+
         let writer_handle = s.spawn(move || {
             while let Ok((guid, data)) = rx.recv() {
                 match writer.write_descriptor_bytes(&guid, &data) {
                     Ok(()) => {},
                     Err(e) => {
                         failed_repacks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        
+
                         mpb.suspend(|| {
                             error!("Error occurred while writing `{}`: {}", guid.to_qualified_string(), e);
                         });
                     }
                 }
-                
+
                 pb_write.inc(1);
             }
         });
-        
+
         match writer_handle.join() {
             Ok(()) => {},
             Err(e) => {
@@ -500,7 +500,7 @@ fn repack0(
                     let mut lock = pending_files.lock().unwrap();
                     lock.clear();
                 }
-                
+
                 for handle in handles {
                     handle.join().unwrap()
                 }
@@ -512,32 +512,32 @@ fn repack0(
         for handle in handles {
             handle.join().unwrap()
         }
-        
+
         Ok(())
     });
-    
+
     pb_serialize.finish_and_clear();
     pb_write.finish_and_clear();
-    
+
     match result {
         Ok(()) => {},
         Err(e) => {
             return Err(e);
         }
     }
-    
+
     match writer.finalize() {
         Ok(()) => {},
         Err(e) => {
             return Err(Error(format!("Failed to write to enshrouded.kfc: {}", e)));
         }
     }
-    
+
     let failed_repacks = failed_repacks.load(std::sync::atomic::Ordering::Relaxed);
     let end = std::time::Instant::now();
-    
+
     info!("Repacked a total of {}/{} descriptors in {:?}", total - failed_repacks, total, end - start);
-    
+
     Ok(())
 }
 
@@ -547,7 +547,7 @@ fn revert_repack(
 ) -> Result<(), Error> {
     let kfc_file = game_dir.join("enshrouded.kfc");
     let kfc_file_bak = game_dir.join("enshrouded.kfc.bak");
-    
+
     if !kfc_file_bak.exists() {
         fatal!("Backup file not found: {}", kfc_file_bak.display());
     }
@@ -562,7 +562,7 @@ fn revert_repack(
         Ok(_) => {},
         Err(e) => {
             error!("Failed to revert repack: {}", e);
-            
+
             if kfc_file_bak.exists() {
                 fatal!("Please manually restore from backup file: {}", kfc_file_bak.display());
             } else {
@@ -570,9 +570,9 @@ fn revert_repack(
             }
         }
     }
-    
+
     info!("Reverted repack successfully");
-    
+
     Ok(())
 }
 
@@ -605,7 +605,7 @@ fn extract_types(game_dir: PathBuf) -> Result<(), Error> {
     }
 
     info!("Reflection data has been written to reflection_data.json");
-    
+
     Ok(())
 }
 
@@ -616,7 +616,7 @@ fn load_type_collection(
     let mut type_collection = TypeCollection::default();
     let flag = AtomicBool::new(false);
     let pb = ProgressBar::no_length();
-    
+
     pb.set_style(ProgressStyle::with_template(
         &format!("{} {{spinner:.green}} {{msg}}", "info:".blue().bold())
     ).unwrap());
@@ -671,7 +671,7 @@ fn load_type_collection(
     };
 
     info!("Loaded a total of {} types", type_count);
-    
+
     Ok(type_collection)
 }
 
@@ -864,11 +864,11 @@ fn extract_nodes() -> Result<(), Error> {
     let nodes = type_collection.get_impact_nodes()
         .into_values()
         .collect::<Vec<_>>();
-    
+
     let output_path = current_exe().unwrap()
         .parent().unwrap()
         .join("impact_nodes.json");
-    
+
     let writer = match File::create(&output_path) {
         Ok(file) => BufWriter::new(file),
         Err(e) => fatal!("Failed to create `impact_nodes.json`: {}", e),
@@ -880,6 +880,6 @@ fn extract_nodes() -> Result<(), Error> {
     }
 
     info!("Impact node data has been written to {}", std::path::absolute(output_path).unwrap().display());
-    
+
     Ok(())
 }

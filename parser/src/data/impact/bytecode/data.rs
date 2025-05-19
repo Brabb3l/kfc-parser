@@ -53,7 +53,7 @@ impl ImpactProgramData {
 
             let start = layout.offset_in_bytes as usize;
             let end = start + layout.size as usize;
-            
+
             if let Some(i) = mapping_offsets.get(&start) {
                 let entry: &ImpactProgramDataEntry = &data[*i];
                 let parent_layout: &ImpactVariable = &program.data_layout[*i];
@@ -65,7 +65,7 @@ impl ImpactProgramData {
                     .find(|x| x.data_offset == field_offset)
                     .map(|x| x.name.clone())
                     .ok_or_else(|| anyhow::anyhow!("Field not found: {}", layout.dbg_name))?;
-             
+
                 data.push(ImpactProgramDataEntry {
                     name: layout.dbg_name.clone(),
                     r#type: type_info.qualified_name.clone(),
@@ -102,7 +102,7 @@ impl ImpactProgramData {
             used_streams: program.used_streams.clone(),
         })
     }
-    
+
     pub fn into_program(
         self,
         type_collection: &TypeCollection,
@@ -114,21 +114,21 @@ impl ImpactProgramData {
         let program_guid = guid;
         let stack_size = 256;
         let used_streams = self.used_streams;
-        
+
         let mut buf = Vec::new();
         let mut data = Vec::new();
         let mut data_layout = Vec::<ImpactVariable>::new();
-    
+
         for entry in self.data.into_iter() {
             let dbg_name = entry.name;
             let config_id = HashKey32::from(entry.config_id);
             let name = HashKey32::from(fnv(dbg_name.as_bytes()));
-            
+
             let type_info = type_collection
                 .get_type_by_qualified_name(&entry.r#type)
                 .ok_or_else(|| anyhow::anyhow!("Type not found: {}", entry.r#type))?;
             let r#type = HashKey32::from(type_info.impact_hash);
-            
+
             if let Some(mapping) = entry.parent {
                 let parent_hash = fnv(mapping.parent_name.as_bytes());
                 let parent_entry = data_layout.iter()
@@ -140,7 +140,7 @@ impl ImpactProgramData {
                 let field = parent_type.struct_fields.iter()
                     .find(|x| x.name == mapping.field_name)
                     .ok_or_else(|| anyhow::anyhow!("Field not found: {}", mapping.field_name))?;
-                
+
                 data_layout.push(ImpactVariable {
                     name,
                     config_id,
@@ -176,7 +176,7 @@ impl ImpactProgramData {
                 });
             }
         }
-    
+
         Ok(ImpactProgram {
             id,
             program_guid,
@@ -188,5 +188,5 @@ impl ImpactProgramData {
             data,
         })
     }
-    
+
 }

@@ -13,7 +13,7 @@ impl<'a> Cursor<'a> {
             chars: content.chars(),
         }
     }
-    
+
     #[inline]
     pub fn index(&self) -> usize {
         self.index

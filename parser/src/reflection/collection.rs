@@ -93,7 +93,7 @@ impl TypeCollection {
     ) -> Option<&TypeInfo> {
         self.get_type_by_impact_hash(fnv(name.as_bytes()))
     }
-    
+
     pub fn get_inheritance_chain<'a>(&'a self, node: &'a TypeInfo) -> Vec<&'a TypeInfo> {
         let mut chain = Vec::new();
         let mut current = node;
@@ -164,13 +164,13 @@ impl TypeCollection {
     pub fn iter_arc(&self) -> impl Iterator<Item = &Arc<TypeInfo>> {
         self.types.iter()
     }
-    
+
     /// Consumes the collection and returns the inner types.
-    /// 
+    ///
     /// # Errors
     /// If there are still strong references to the types in the collection,
     /// it will return an error with the unchanged collection.
-    /// 
+    ///
     /// # Panics
     /// It may panic if another thread creates a new strong
     /// reference to a type while this method is running.
@@ -183,12 +183,12 @@ impl TypeCollection {
 
         drop(self.types_by_impact_hash);
         drop(self.types_by_qualified_hash);
-        
+
         // panics if another thread creates a new strong reference
         let result = self.types.into_iter()
             .map(|node| Arc::try_unwrap(node).unwrap())
             .collect::<Vec<_>>();
-        
+
         Ok(result)
     }
 }

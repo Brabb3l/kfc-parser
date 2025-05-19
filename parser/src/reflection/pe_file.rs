@@ -118,7 +118,7 @@ impl PEFile {
         if va < self.image_base {
             return None;
         }
-        
+
         let va = (va - self.image_base) as u32;
 
         for section in &self.sections {

@@ -19,7 +19,7 @@ impl<'a> ImpactAssembler<'a> {
             nodes,
         }
     }
-    
+
     pub fn disassemble(code: &[ImpactCommand]) -> Vec<ImpactOps> {
         let mut instructions = Vec::new();
         let mut ptr = 0;
@@ -315,4 +315,3 @@ impl ImpactOps {
         }
     }
 }
-

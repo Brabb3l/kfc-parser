@@ -17,17 +17,17 @@ pub struct BlobGuid {
 }
 
 impl BlobGuid {
-    
+
     pub const NONE: BlobGuid = BlobGuid {
         data: [0; 16],
     };
-    
+
     pub fn from_bytes(data: [u8; 16]) -> Self {
         Self {
             data
         }
     }
-    
+
     pub fn from_parts(
         hash0: u32,
         hash1: u32,
@@ -35,12 +35,12 @@ impl BlobGuid {
         size: u32,
     ) -> Self {
         let mut data = [0; 16];
-        
+
         data[0..4].copy_from_slice(&size.to_le_bytes());
         data[4..8].copy_from_slice(&hash0.to_le_bytes());
         data[8..12].copy_from_slice(&hash1.to_le_bytes());
         data[12..16].copy_from_slice(&hash2.to_le_bytes());
-        
+
         Self {
             data
         }
@@ -53,7 +53,7 @@ impl BlobGuid {
     pub fn hash64(&self) -> Hash64 {
         crc64(self.to_string())
     }
-    
+
     pub fn size(&self) -> u32 {
         let data: [u8; 4] = self.data[0..4].try_into().unwrap();
         u32::from_le_bytes(data)
@@ -91,7 +91,7 @@ impl FromStr for BlobGuid {
         if s.len() != 32 {
             return Err(format!("Invalid length: got {}, expected 32", s.len()));
         }
-        
+
         let mut data = [0; 16];
 
         for i in 0..16 {

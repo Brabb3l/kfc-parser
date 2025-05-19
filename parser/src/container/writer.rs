@@ -192,7 +192,7 @@ impl<'a, 'b> KFCWriter<'a, 'b> {
             const BUFFER_SIZE: u64 = 8192;
             let mut buf = vec![0u8; BUFFER_SIZE as usize];
             let mut remaining = len;
-            
+
             file.seek(SeekFrom::End(0))?;
 
             while remaining > 0 {

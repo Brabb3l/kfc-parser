@@ -99,7 +99,7 @@ impl<K: Eq + Hash + Ord + StaticHash, V> StaticMap<K, V> {
 }
 
 impl<K: Eq + Hash + Ord + StaticHash + Clone, V: Clone> StaticMap<K, V> {
-    
+
     pub fn as_builder(&self) -> StaticMapBuilder<K, V> {
         StaticMapBuilder {
             entries: self.keys.iter().cloned().zip(self.values.iter().cloned()).collect(),
@@ -126,7 +126,7 @@ impl StaticMapBucket {
     pub fn write<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
         writer.write_u32(self.index as u32)?;
         writer.write_u32(self.count as u32)?;
-        
+
         Ok(())
     }
 
