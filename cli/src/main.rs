@@ -5,7 +5,7 @@ use parser::container::{KFCFile, KFCReader, KFCWriter};
 use parser::data::impact::bytecode::{ImpactAssembler, ImpactProgramData};
 use parser::data::impact::ImpactProgram;
 use parser::guid::DescriptorGuid;
-use parser::reflection::{TypeCollection, TypeParseError};
+use parser::reflection::{DescriptorNameMapper, TypeCollection, TypeParseError};
 use std::collections::HashSet;
 use std::env::current_exe;
 use std::fs::File;
@@ -127,6 +127,9 @@ fn unpack(
         Err(e) => fatal!("Failed to read enshrouded.kfc: {}", e)
     };
 
+    let mut name_mapper = DescriptorNameMapper::new(&type_collection);
+    name_mapper.set_guid_only(true);
+
     enum Filter<'a> {
         All,
         ByType(&'a str),
@@ -198,6 +201,7 @@ fn unpack(
     let pending_guids = Mutex::new(guids.into_iter().collect::<Vec<_>>());
     let failed_unpacks = AtomicU32::new(0);
     let start = std::time::Instant::now();
+    let names = Mutex::new(HashSet::new());
 
     std::thread::scope(|s| {
         let mut handles = Vec::new();
@@ -208,8 +212,10 @@ fn unpack(
             let pending_guids = &pending_guids;
             let kfc_file = &kfc_file;
             let type_collection = &type_collection;
+            let name_mapper = &name_mapper;
             let output_dir = &output_dir;
             let pb = &pb;
+            let names = &names;
 
             let handle = s.spawn(move || {
                 let mut buf = Vec::with_capacity(1024);
@@ -256,8 +262,30 @@ fn unpack(
                             std::fs::create_dir_all(&parent)?;
                         }
 
-                        let path = parent.join(format!("{}.json", guid.to_qualified_string()));
-                        let file = File::create(&path)?;
+                        let name = name_mapper.get_name(guid, &descriptor);
+                        let mut file_name = format!("{}.json", name);
+                        let mut file_names = names.lock().unwrap();
+                        let mut i = 0;
+
+                        while file_names.contains(&file_name) {
+                            i += 1;
+                            file_name = format!("{}.{}.json", name, i);
+                        }
+
+                        file_names.insert(file_name.clone());
+
+                        drop(file_names);
+
+                        let path = parent.join(&file_name);
+                        let file = match File::create(&path) {
+                            Ok(file) => file,
+                            Err(e) => {
+                                pb.suspend(|| {
+                                    error!("Failed to create file with name `{}`: {}", file_name, e);
+                                });
+                                return Ok(());
+                            }
+                        };
                         let writer = BufWriter::new(file);
                         serde_json::to_writer_pretty(writer, &descriptor)?;
 

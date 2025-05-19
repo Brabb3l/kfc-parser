@@ -1,9 +1,11 @@
+use bcdec_rs::bc6h_float;
 use half::f16;
 use image::RgbaImage;
+use serde::{Deserialize, Serialize};
 use texture2ddecoder::{decode_bc1, decode_bc3, decode_bc4, decode_bc5, decode_bc6, decode_bc7};
 
 #[allow(non_camel_case_types)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PixelFormat {
     None,
     R4G4_unorm_pack8,
@@ -258,14 +260,10 @@ macro_rules! convert_image {
 
 pub fn deserialize_image(
     format: PixelFormat,
-    width: u16,
-    height: u16,
+    width: usize,
+    height: usize,
     reader: &[u8],
-) -> anyhow::Result<RgbaImage> {
-    let width = width as usize;
-    let height = height as usize;
-
-    let mut image = RgbaImage::new(width as u32, height as u32);
+) -> anyhow::Result<Vec<u32>> {
     let mut pixels = vec![0; width * height];
 
     match format {
@@ -509,8 +507,8 @@ pub fn deserialize_image(
         PixelFormat::BC4_snorm_block => decode_bc4(reader, width, height, &mut pixels).unwrap(),
         PixelFormat::BC5_unorm_block => decode_bc5(reader, width, height, &mut pixels).unwrap(),
         PixelFormat::BC5_snorm_block => decode_bc5(reader, width, height, &mut pixels).unwrap(),
-        PixelFormat::BC6H_ufloat_block => decode_bc6(reader, width, height, &mut pixels, false).unwrap(),
-        PixelFormat::BC6H_sfloat_block => decode_bc6(reader, width, height, &mut pixels, true).unwrap(),
+        PixelFormat::BC6H_ufloat_block => decode_bc6h(reader, width, height, &mut pixels, false).unwrap(),
+        PixelFormat::BC6H_sfloat_block => decode_bc6h(reader, width, height, &mut pixels, true).unwrap(),
         PixelFormat::BC7_unorm_block => decode_bc7(reader, width, height, &mut pixels).unwrap(),
         PixelFormat::BC7_srgb_block => decode_bc7(reader, width, height, &mut pixels).unwrap(),
         _ => return Err(anyhow::anyhow!("Unsupported format: {:?}", format))
@@ -536,28 +534,108 @@ pub fn deserialize_image(
         PixelFormat::BC7_srgb_block
     );
 
-    let mut x = 0;
-    let mut y = 0;
+    // let mut x = 0;
+    // let mut y = 0;
 
-    for pixel in pixels {
-        let r = (pixel & 0xFF) as u8;
-        let g = ((pixel >> 8) & 0xFF) as u8;
-        let b = ((pixel >> 16) & 0xFF) as u8;
-        let a = ((pixel >> 24) & 0xFF) as u8;
+    // for pixel in pixels {
+    //     let r = (pixel & 0xFF) as u8;
+    //     let g = ((pixel >> 8) & 0xFF) as u8;
+    //     let b = ((pixel >> 16) & 0xFF) as u8;
+    //     let a = ((pixel >> 24) & 0xFF) as u8;
 
-        if bgr {
-            image.put_pixel(x, y, image::Rgba([b, g, r, a]));
-        } else {
-            image.put_pixel(x, y, image::Rgba([r, g, b, a]));
-        }
+    //     if bgr {
+    //         image.put_pixel(x, y, image::Rgba([b, g, r, a]));
+    //     } else {
+    //         image.put_pixel(x, y, image::Rgba([r, g, b, a]));
+    //     }
 
-        x += 1;
+    //     x += 1;
 
-        if x == width as u32 {
-            x = 0;
-            y += 1;
-        }
+    //     if x == width as u32 {
+    //         x = 0;
+    //         y += 1;
+    //     }
+    // }
+
+    Ok(pixels)
+}
+
+fn decode_bc6h(
+    data: &[u8],
+    width: usize,
+    height: usize,
+    image: &mut [u32],
+    signed: bool,
+) -> Result<(), &'static str> {
+    const BLOCK_WIDTH: usize = 4;
+    const BLOCK_HEIGHT: usize = 4;
+    const BLOCK_SIZE: usize = BLOCK_WIDTH * BLOCK_HEIGHT;
+    let num_blocks_x: usize = (width + BLOCK_WIDTH - 1) / BLOCK_WIDTH;
+    let num_blocks_y: usize = (height + BLOCK_WIDTH - 1) / BLOCK_HEIGHT;
+
+    if data.len() < num_blocks_x * num_blocks_y * 16 {
+        return Err("Not enough data to decode image!");
     }
 
-    Ok(image)
+    if image.len() < width * height {
+        return Err("Image buffer is too small!");
+    }
+
+    let mut block_buffer = [0f32; BLOCK_SIZE * 3];
+    let mut data_offset = 0;
+
+    for by in 0..num_blocks_y {
+        for bx in 0..num_blocks_x {
+            bc6h_float(&data[data_offset..], &mut block_buffer, 4 * 3, signed);
+            copy_block_buffer(
+                bx,
+                by,
+                width,
+                height,
+                &block_buffer,
+                image,
+            );
+            data_offset += 16;
+        }
+    }
+    Ok(())
 }
+
+#[inline]
+fn pack_rgb(rgb: &[f32]) -> u32 {
+    let r = (rgb[0] * 255.0) as u32;
+    let g = (rgb[1] * 255.0) as u32;
+    let b = (rgb[2] * 255.0) as u32;
+
+    b << 16 | g << 8 | r
+}
+
+#[inline]
+fn copy_block_buffer(
+    bx: usize,
+    by: usize,
+    w: usize,
+    h: usize,
+    buffer: &[f32],
+    image: &mut [u32],
+) {
+    let x: usize = 4 * bx;
+    let copy_width: usize = if 4 * (bx + 1) > w { w - 4 * bx } else { 4 };
+
+    let y_0 = by * 4;
+    let copy_height: usize = if 4 * (by + 1) > h { h - y_0 } else { 4 };
+    let mut buffer_offset = 0;
+
+    for y in y_0..y_0 + copy_height {
+        let image_offset = y * w + x;
+
+        for x in 0..copy_width {
+            image[image_offset + x] = pack_rgb(&buffer[buffer_offset..buffer_offset + 3]);
+            buffer_offset += 3;
+        }
+
+        // image[image_offset..image_offset + copy_width]
+        //     .copy_from_slice(&buffer[buffer_offset..buffer_offset + copy_width]);
+    }
+}
+
