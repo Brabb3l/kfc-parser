@@ -2,6 +2,7 @@ use std::fmt::{Debug, Display};
 use std::io::{Read, Write};
 use std::str::FromStr;
 
+use serde::Deserialize;
 use shared::hash::fnv_with_seed;
 use shared::io::{ReadExt, WriteExt};
 
@@ -120,6 +121,10 @@ impl DescriptorGuid {
         format!("{}_{:0>8x}_{}", self.to_string(), self.type_hash, self.part_number)
     }
 
+    pub fn hash32(&self) -> Hash32 {
+        self.as_blob_guid().hash32()
+    }
+
     pub fn is_none(&self) -> bool {
         self.data == [0; 16]
     }
@@ -191,6 +196,26 @@ impl DescriptorGuid {
         Ok(())
     }
 
+}
+
+impl<'de> Deserialize<'de> for DescriptorGuid {
+    fn deserialize<D>(deserializer: D) -> Result<DescriptorGuid, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        DescriptorGuid::from_qualified_str(&s)
+            .ok_or_else(|| serde::de::Error::custom("invalid DescriptorGuid"))
+    }
+}
+
+impl serde::Serialize for DescriptorGuid {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.to_qualified_string().serialize(serializer)
+    }
 }
 
 #[inline]

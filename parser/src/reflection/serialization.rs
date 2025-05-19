@@ -6,7 +6,6 @@ use serde_json::{Map, Value as JsonValue};
 use shared::io::{ReadExt, ReadSeekExt, WriteExt};
 
 use crate::guid::{BlobGuid, DescriptorGuid};
-use crate::Hash32;
 
 use super::types::*;
 use super::{TypeCollection, ReadError, WriteError};
@@ -31,6 +30,8 @@ impl TypeCollection {
         value: &JsonValue,
         dst: &mut Vec<u8>
     ) -> Result<(), WriteError> {
+        dst.resize(type_info.size as usize, 0);
+
         let mut writer = Cursor::new(dst);
         let mut blob_offset = type_info.size as u64;
         
@@ -39,27 +40,46 @@ impl TypeCollection {
         Ok(())
     }
     
-    pub fn serialize_by_hash(
+    pub fn serialize_descriptor(
         &self,
-        type_info: Hash32,
         value: &JsonValue
-    ) -> Result<Vec<u8>, WriteError> {
-        let type_entry = self.get_type_by_qualified_hash(type_info)
-            .ok_or(WriteError::UnknownType(type_info))?;
+    ) -> Result<(DescriptorGuid, Vec<u8>), WriteError> {
+        let mut result = Vec::new();
 
-        self.serialize(type_entry, value)
+        self.serialize_descriptor_into(value, &mut result)
+            .map(|guid| (guid, result))
     }
 
-    pub fn serialize_into_by_hash(
+    pub fn serialize_descriptor_into(
         &self,
-        type_hash: Hash32,
         value: &JsonValue,
         dst: &mut Vec<u8>
-    ) -> Result<(), WriteError> {
-        let type_info = self.get_type_by_qualified_hash(type_hash)
-            .ok_or(WriteError::UnknownType(type_hash))?;
+    ) -> Result<DescriptorGuid, WriteError> {
+        if let Some(obj) = value.as_object() {
+            let type_name = obj.get("$type")
+                .and_then(|v| v.as_str())
+                .ok_or(WriteError::MissingRootType)?;
+            let guid = obj.get("$guid")
+                .and_then(|v| v.as_str())
+                .ok_or(WriteError::MissingRootGuid)?;
+            let part = obj.get("$part")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32;
 
-        self.serialize_into(type_info, value, dst)
+            let type_info = self.get_type_by_qualified_name(type_name)
+                .ok_or_else(|| WriteError::InvalidType(type_name.to_string()))?;
+            let guid = DescriptorGuid::from_str(
+                guid,
+                type_info.qualified_hash,
+                part
+            ).ok_or_else(|| WriteError::MalformedDescriptorGuid(guid.to_string()))?;
+
+            self.serialize_into(type_info, value, dst)?;
+
+            Ok(guid)
+        } else {
+            Err(WriteError::RootNotObject)
+        }
     }
 
     pub fn deserialize(
@@ -72,15 +92,31 @@ impl TypeCollection {
         Self::read_type(self, type_entry, &mut reader, 0)
     }
 
-    pub fn deserialize_by_hash(
+    pub fn deserialize_descriptor(
         &self,
-        type_hash: Hash32,
+        guid: &DescriptorGuid,
         data: &[u8]
     ) -> Result<JsonValue, ReadError> {
-        let type_entry = self.get_type_by_qualified_hash(type_hash)
-            .ok_or(ReadError::UnknownType(type_hash))?;
+        let type_entry = self.get_type_by_qualified_hash(guid.type_hash)
+            .ok_or(ReadError::UnknownType(guid.type_hash))?;
+        let mut result = Self::deserialize(self, type_entry, data)?;
 
-        Self::deserialize(self, type_entry, data)
+        if let Some(obj) = result.as_object_mut() {
+            obj.insert("$type".into(), JsonValue::String(type_entry.qualified_name.clone()));
+            obj.insert("$guid".into(), JsonValue::String(guid.to_string()));
+            obj.insert("$part".into(), JsonValue::Number(guid.part_number.into()));
+
+            Ok(result)
+        } else {
+            Err(ReadError::RootNotObject)
+        }
+    }
+
+    pub fn resolve_typedef<'a>(&'a self, type_entry: &'a TypeInfo) -> &'a TypeInfo {
+        match &type_entry.primitive_type {
+            PrimitiveType::Typedef => self.get_inner_type(type_entry),
+            _ => type_entry
+        }
     }
 
 }
@@ -510,7 +546,7 @@ impl TypeCollection {
                     BlobGuid::NONE.write(writer)?;
                 } else if let Some(value) = value.as_str() {
                     DescriptorGuid::from_str(value, 0, 0)
-                        .ok_or(WriteError::MalformedDescriptorGuid)?
+                        .ok_or_else(|| WriteError::MalformedDescriptorGuid(value.to_string()))?
                         .as_blob_guid()
                         .write(writer)?;
                 } else {
@@ -780,7 +816,7 @@ impl TypeCollection {
 
                     JsonValue::String(value)
                 } else {
-                    JsonValue::Null
+                    JsonValue::String(String::new())
                 }
             },
             PrimitiveType::BlobOptional => {

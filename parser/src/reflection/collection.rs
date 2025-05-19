@@ -160,6 +160,10 @@ impl TypeCollection {
         self.types.iter()
             .map(|node| node.as_ref())
     }
+
+    pub fn iter_arc(&self) -> impl Iterator<Item = &Arc<TypeInfo>> {
+        self.types.iter()
+    }
     
     /// Consumes the collection and returns the inner types.
     /// 

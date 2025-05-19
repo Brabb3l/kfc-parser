@@ -64,10 +64,19 @@ impl<'a, 'b> KFCWriter<'a, 'b> {
 
     pub fn write_descriptor(
         &mut self,
+        value: &JsonValue
+    ) -> Result<(), WriteError> {
+        let (guid, data) = self.type_collection.serialize_descriptor(value)?;
+
+        Ok(self.write_descriptor_bytes(&guid, &data)?)
+    }
+
+    pub fn write_descriptor_with_guid(
+        &mut self,
         guid: &DescriptorGuid,
         value: &JsonValue
     ) -> Result<(), WriteError> {
-        let data = self.type_collection.serialize_by_hash(guid.type_hash, value)?;
+        let (_, data) = self.type_collection.serialize_descriptor(value)?;
 
         Ok(self.write_descriptor_bytes(guid, &data)?)
     }

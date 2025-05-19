@@ -342,7 +342,6 @@ fn repack(
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
         .filter(|e| e.path().extension().map(|x| x == "json").unwrap_or(false))
-        .filter(|e| !e.path().file_stem().and_then(|x| x.to_str()).unwrap_or("").contains('.'))
         .map(|e| e.path().to_path_buf())
         .collect::<Vec<_>>();
     
@@ -397,7 +396,6 @@ fn repack0(
     let result = std::thread::scope(|s| {
         let failed_repacks = &failed_repacks;
         let pending_files = &pending_files;
-        let type_collection = &type_collection;
         let writer = &mut writer;
         let pb_serialize = &pb_serialize;
         let pb_write = &pb_write;
@@ -421,26 +419,11 @@ fn repack0(
                     };
 
                     let result: anyhow::Result<()> = (|| {
-                        let guid = match DescriptorGuid::from_qualified_str(
-                            file.file_stem().unwrap().to_str().unwrap()
-                        ) {
-                            Some(guid) => guid,
-                            None => {
-                                mpb.suspend(|| {
-                                    warn!("Skipping file (invalid guid): {}", file.display());
-                                });
+                        let reader = BufReader::new(File::open(&file)?);
+                        let descriptor = serde_json::from_reader::<_, serde_json::Value>(reader)?;
+                        let result = type_collection.serialize_descriptor(&descriptor)?;
 
-                                return Ok(());
-                            }
-                        };
-
-                        let json = std::fs::read(&file)?;
-                        let descriptor: serde_json::Value = serde_json::from_slice(&json)?;
-
-                        let mut data = Vec::with_capacity(1024);
-                        type_collection.serialize_into_by_hash(guid.type_hash, &descriptor, &mut data)?;
-
-                        tx.send((guid, data)).unwrap();
+                        tx.send(result).unwrap();
 
                         Ok(())
                     })();

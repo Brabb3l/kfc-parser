@@ -301,6 +301,7 @@ impl KFCFile {
         for dat_info in &self.dat_infos {
             dat_info.write(writer)?;
         }
+        writer.align(8)?;
         
         // descriptor locations
         let descriptor_locations_offset = writer.stream_position()?;
@@ -359,7 +360,6 @@ impl KFCFile {
         for group_hash in self.groups.keys() {
             writer.write_u32(*group_hash)?;
         }
-        writer.align(8)?;
         
         let group_infos_offset = writer.stream_position()?;
         for group_info in self.groups.values() {
