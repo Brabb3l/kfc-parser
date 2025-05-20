@@ -1,8 +1,7 @@
 use bcdec_rs::bc6h_float;
 use half::f16;
-use image::RgbaImage;
 use serde::{Deserialize, Serialize};
-use texture2ddecoder::{decode_bc1, decode_bc3, decode_bc4, decode_bc5, decode_bc6, decode_bc7};
+use texture2ddecoder::{decode_bc1, decode_bc3, decode_bc4, decode_bc5, decode_bc7};
 
 #[allow(non_camel_case_types)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -514,7 +513,7 @@ pub fn deserialize_image(
         _ => return Err(anyhow::anyhow!("Unsupported format: {:?}", format))
     };
 
-    let bgr = matches!(
+    let _bgr = matches!(
         format,
         PixelFormat::BC1_RGB_unorm_block |
         PixelFormat::BC1_RGB_srgb_block |
