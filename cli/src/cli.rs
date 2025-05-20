@@ -20,13 +20,21 @@ pub enum Commands {
         #[arg(short, long)]
         game_directory: PathBuf,
 
+        /// File name override (defaults to `enshrouded` and `enshrouded_server`)
+        #[arg(long)]
+        file_name: Option<String>,
+
         /// Output directory
-        #[arg(short, long)]
-        output: PathBuf,
+        #[arg(short, long, required_unless_present = "stdout", conflicts_with = "stdout")]
+        output: Option<PathBuf>,
 
         /// Comma separated filter by type (prefixed with t) or guid
         #[arg(short, long, default_value = "*")]
         filter: String,
+
+        /// Write unpacked content to stdout (newline-separated)
+        #[arg(short, long, required_unless_present = "output", conflicts_with = "output")]
+        stdout: bool,
     },
 
     /// Repack enshrouded files (will backup the origin .kfc to .kfc.bak)
@@ -35,9 +43,17 @@ pub enum Commands {
         #[arg(short, long)]
         game_directory: PathBuf,
 
+        /// File name override (defaults to `enshrouded` and `enshrouded_server`)
+        #[arg(long)]
+        file_name: Option<String>,
+
         /// Input directory containing unpacked files
-        #[arg(short, long)]
-        input: PathBuf,
+        #[arg(short, long, required_unless_present = "stdin", conflicts_with = "stdin")]
+        input: Option<PathBuf>,
+
+        /// Read unpacked content from stdin (newline-separated)
+        #[arg(short, long, required_unless_present = "input", conflicts_with = "input")]
+        stdin: bool,
     },
 
     /// Extract type information from enshrouded files
@@ -45,6 +61,10 @@ pub enum Commands {
         /// Game directory (should contain enshrouded.exe)
         #[arg(short, long)]
         game_directory: PathBuf,
+
+        /// File name override (defaults to `enshrouded` and `enshrouded_server`)
+        #[arg(long)]
+        file_name: Option<String>,
     },
 
     /// Restore the original enshrouded files
@@ -52,6 +72,10 @@ pub enum Commands {
         /// Game directory (should contain enshrouded.kfc.bak)
         #[arg(short, long)]
         game_directory: PathBuf,
+
+        /// File name override (defaults to `enshrouded` and `enshrouded_server`)
+        #[arg(long)]
+        file_name: Option<String>,
     },
 
     /// CLI for impact files

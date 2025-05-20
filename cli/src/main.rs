@@ -9,7 +9,7 @@ use parser::reflection::{DescriptorNameMapper, TypeCollection, TypeParseError};
 use std::collections::HashSet;
 use std::env::current_exe;
 use std::fs::File;
-use std::io::{BufReader, BufWriter};
+use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::sync::atomic::{AtomicBool, AtomicU32};
@@ -21,7 +21,6 @@ use crate::logging::*;
 
 mod cli;
 mod logging;
-// mod test;
 
 macro_rules! fatal {
     ($($arg:tt)*) => {
@@ -40,34 +39,56 @@ impl std::fmt::Display for Error {
 }
 
 fn main() {
-    // test::test().unwrap();
-    // return;
     let cli = Cli::parse();
     let thread_count = cli.threads;
 
     let result = match cli.commands {
         Commands::Unpack {
             game_directory,
+            file_name,
             output,
             filter,
+            stdout,
         } => {
-            unpack(&game_directory, &output, filter, thread_count)
+            set_logging(!stdout);
+            unpack(
+                &game_directory,
+                file_name.as_deref(),
+                output.as_deref(),
+                stdout,
+                filter,
+                thread_count
+            )
         }
         Commands::Repack {
             game_directory,
+            file_name,
             input,
+            stdin,
         } => {
-            repack(game_directory, input, thread_count)
+            repack(
+                &game_directory,
+                file_name.as_deref(),
+                input.as_deref(),
+                stdin,
+                thread_count
+            )
         }
         Commands::ExtractTypes {
-            game_directory
+            game_directory,
+            file_name,
         } => {
-            extract_types(game_directory)
+            extract_types(&game_directory, file_name.as_deref())
         }
         Commands::Restore {
             game_directory,
+            file_name,
         } => {
-            revert_repack(&game_directory, false)
+            revert_repack(
+                &game_directory,
+                file_name.as_deref(),
+                false
+            )
         }
         Commands::Impact(impact) => match impact {
             CommandImpact::Assemble {
@@ -100,7 +121,9 @@ fn main() {
 
 fn unpack(
     game_dir: &Path,
-    output_dir: &Path,
+    file_name: Option<&str>,
+    output_dir: Option<&Path>,
+    stdout: bool,
     filter: String,
     thread_count: u8
 ) -> Result<(), Error> {
@@ -108,27 +131,34 @@ fn unpack(
         fatal!("Game directory does not exist: {}", game_dir.display());
     }
 
-    if !output_dir.exists() {
-        fatal!("Output directory does not exist: {}", output_dir.display());
+    if output_dir.map(|x| !x.exists()).unwrap_or(false) {
+        fatal!("Output directory does not exist: {}", output_dir.unwrap().display());
     }
 
-    let kfc_file = game_dir.join("enshrouded.kfc");
+    let kfc_file = get_file(game_dir, file_name, "kfc")?;
+    let type_collection = load_type_collection(Some(game_dir), file_name, true)?;
 
-    if !kfc_file.exists() {
-        fatal!("enshrouded.kfc file not found: {}", kfc_file.display());
-    }
-
-    let type_collection = load_type_collection(Some(game_dir), true)?;
-
-    info!("Unpacking {} to {}", kfc_file.display(), output_dir.display());
-
-    let file = match KFCFile::from_path(&kfc_file) {
+    let file = match KFCFile::from_path(&kfc_file, false) {
         Ok(dir) => dir,
         Err(e) => fatal!("Failed to read enshrouded.kfc: {}", e)
     };
 
     let mut name_mapper = DescriptorNameMapper::new(&type_collection);
     name_mapper.set_guid_only(true);
+
+    // let mut tmp_reader = match KFCReader::new(&kfc_file, &file, &type_collection) {
+    //     Ok(file) => file,
+    //     Err(e) => {
+    //         fatal!("Failed to open enshrouded.kfc: {}", e)
+    //     }
+    // };
+
+    // match name_mapper.read_data(&mut tmp_reader) {
+    //     Ok(()) => {},
+    //     Err(e) => {
+    //         fatal!("Failed to read localization data: {}", e)
+    //     }
+    // }
 
     enum Filter<'a> {
         All,
@@ -191,6 +221,40 @@ fn unpack(
         }
     }
 
+    if let Some(output_dir) = output_dir {
+        info!("Unpacking {} to {}", kfc_file.display(), output_dir.display());
+
+        unpack_files(
+            &kfc_file,
+            &file,
+            &type_collection,
+            &name_mapper,
+            output_dir,
+            guids,
+            thread_count
+        )
+    } else if stdout {
+        unpack_stdout(
+            &kfc_file,
+            &file,
+            &type_collection,
+            guids,
+            thread_count
+        )
+    } else {
+        fatal!("No output directory specified")
+    }
+}
+
+fn unpack_files(
+    kfc_file: &Path,
+    file: &KFCFile,
+    type_collection: &TypeCollection,
+    name_mapper: &DescriptorNameMapper,
+    output_dir: &Path,
+    guids: HashSet<&DescriptorGuid>,
+    thread_count: u8
+) -> Result<(), Error> {
     let pb = ProgressBar::new(guids.len() as u64);
     pb.set_style(ProgressStyle::default_bar()
         .template(&format!("{} Unpacking... [{{bar:40}}] {{pos:>7}}/{{len:7}} {{msg}}", "info:".blue().bold()))
@@ -325,30 +389,160 @@ fn unpack(
     Ok(())
 }
 
+fn unpack_stdout(
+    path: &Path,
+    file: &KFCFile,
+    type_collection: &TypeCollection,
+    guids: HashSet<&DescriptorGuid>,
+    thread_count: u8
+) -> Result<(), Error> {
+    let pending_guids = Mutex::new(guids.into_iter().collect::<Vec<_>>());
+    let (tx, rx) = std::sync::mpsc::sync_channel(1024);
+
+    std::thread::scope(|s| {
+        let mut handles = Vec::new();
+
+        for _ in 0..thread_count {
+            let tx = tx.clone();
+            let dir = &file;
+            let pending_guids = &pending_guids;
+
+            let handle = s.spawn(move || {
+                let mut buf = Vec::with_capacity(1024);
+                let mut reader = match KFCReader::new(path, dir, type_collection) {
+                    Ok(file) => file,
+                    Err(e) => {
+                        let error = serde_json::json!({
+                            "$error": "KFCReaderError",
+                            "$message": format!("Failed to open {}: {}", path.display(), e),
+                        }).to_string();
+
+                        tx.send(error).unwrap();
+
+                        return;
+                    }
+                };
+
+                loop {
+                    let guid = {
+                        let mut lock = pending_guids.lock().unwrap();
+
+                        if let Some(entry) = lock.pop() {
+                            entry
+                        } else {
+                            break;
+                        }
+                    };
+
+                    buf.clear();
+                    let descriptor = match reader.read_descriptor_into(guid, &mut buf) {
+                        Ok(Some(d)) => match serde_json::to_string(&d) {
+                            Ok(data) => data,
+                            Err(e) => {
+                                serde_json::json!({
+                                    "$guid": guid.to_qualified_string(),
+                                    "$error": "SerializationError",
+                                    "$message": e.to_string(),
+                                }).to_string()
+                            }
+                        },
+                        Ok(None) => serde_json::json!({
+                            "$guid": guid.to_qualified_string(),
+                            "$error": "NotFound",
+                        }).to_string(),
+                        Err(e) => serde_json::json!({
+                            "$guid": guid.to_qualified_string(),
+                            "$error": "ReadError",
+                            "$message": e.to_string(),
+                        }).to_string()
+                    };
+                    let result = descriptor.to_string();
+
+                    tx.send(result).unwrap();
+                }
+            });
+
+            handles.push(handle);
+        }
+
+        drop(tx);
+
+        let writer_handle = s.spawn(move || {
+            let mut writer = std::io::stdout();
+
+            while let Ok(data) = rx.recv() {
+                match writer.write_all(data.as_bytes()) {
+                    Ok(()) => {},
+                    Err(e) => panic!("Failed to write to stdout: {}", e),
+                }
+
+                match writer.write_all(b"\n") {
+                    Ok(()) => {},
+                    Err(e) => panic!("Failed to write to stdout: {}", e),
+                }
+            }
+        });
+
+        match writer_handle.join() {
+            Ok(()) => {},
+            Err(e) => {
+                fatal!("Writer thread panicked: {:?}", e)
+            }
+        }
+
+        for handle in handles {
+            handle.join().unwrap()
+        }
+
+        Ok(())
+    })
+}
+
+fn validate_backup(
+    kfc_path: &Path,
+    kfc_path_bak: &Path
+) -> Result<bool, Error> {
+    let kfc_bak_file = match KFCFile::from_path(kfc_path_bak, true) {
+        Ok(file) => file,
+        Err(_) => return Ok(false),
+    };
+
+    let kfc_file = match KFCFile::from_path(kfc_path, true) {
+        Ok(file) => file,
+        Err(e) => fatal!("Failed to read {}: {}", kfc_path.display(), e)
+    };
+
+    Ok(kfc_bak_file.game_version() == kfc_file.game_version())
+}
+
 fn repack(
-    game_dir: PathBuf,
-    input_dir: PathBuf,
+    game_dir: &Path,
+    file_name: Option<&str>,
+    input_dir: Option<&Path>,
+    stdin: bool,
     thread_count: u8
 ) -> Result<(), Error> {
     if !game_dir.exists() {
         fatal!("Game directory does not exist: {}", game_dir.display());
     }
 
-    if !input_dir.exists() {
-        fatal!("Input directory does not exist: {}", input_dir.display());
+    if input_dir.map(|x| !x.exists()).unwrap_or(false) {
+        fatal!("Input directory does not exist: {}", input_dir.unwrap().display());
     }
 
-    let kfc_path = game_dir.join("enshrouded.kfc");
-    let kfc_path_bak = game_dir.join("enshrouded.kfc.bak");
+    let kfc_path = get_file(game_dir, file_name, "kfc")?;
+    let kfc_path_bak = get_file_opt(game_dir, file_name, "kfc.bak")?;
 
-    if !kfc_path.exists() {
-        fatal!("enshrouded.kfc file not found: {}", kfc_path.display());
+    if kfc_path_bak.exists() && !validate_backup(&kfc_path, &kfc_path_bak)? {
+        warn!("Backup file is not valid, deleting it...");
+
+        if let Err(e) = std::fs::remove_file(&kfc_path_bak) {
+            fatal!("Failed to delete backup file: {}", e);
+        }
     }
-
-    // TODO: Check version tag to verify if the bak file is still valid
 
     if !kfc_path_bak.exists() {
-        info!("Creating backup of enshrouded.kfc...");
+        info!("Creating backup of {}...", kfc_path.display());
 
         match std::fs::copy(&kfc_path, &kfc_path_bak) {
             Ok(_) => {},
@@ -356,37 +550,64 @@ fn repack(
         }
     }
 
-    let type_collection = load_type_collection(Some(&game_dir), true)?;
+    let type_collection = load_type_collection(Some(game_dir), file_name, true)?;
 
-    info!("Repacking {} to {}", input_dir.display(), kfc_path.display());
-
-    let mut kfc_file = match KFCFile::from_path(&kfc_path_bak) {
+    let mut ref_kfc_file = match KFCFile::from_path(&kfc_path_bak, false) {
         Ok(file) => file,
-        Err(e) => fatal!("Failed to read enshrouded.kfc.bak: {}", e)
+        Err(e) => fatal!("Failed to read {}: {}", kfc_path_bak.display(), e)
     };
 
-    let files = WalkDir::new(input_dir)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-        .filter(|e| e.path().extension().map(|x| x == "json").unwrap_or(false))
-        .map(|e| e.path().to_path_buf())
-        .collect::<Vec<_>>();
+    if let Some(input_dir) = input_dir {
+        info!("Repacking {} to {}", input_dir.display(), kfc_path.display());
 
-    let result = repack0(&kfc_path, &mut kfc_file, files, &type_collection, thread_count);
+        let files = WalkDir::new(input_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+            .filter(|e| e.path().extension().map(|x| x == "json").unwrap_or(false))
+            .map(|e| e.path().to_path_buf())
+            .collect::<Vec<_>>();
 
-    match result {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            error!("{}", e);
-            revert_repack(&game_dir, true)
+        let result = repack_files(
+            &kfc_path,
+            &mut ref_kfc_file,
+            files,
+            &type_collection,
+            thread_count
+        );
+
+        match result {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                error!("{}", e);
+                revert_repack(game_dir, file_name, true)
+            }
         }
+    } else if stdin {
+        info!("Repacking from stdin to {}", kfc_path.display());
+
+        let result = repack_stdin(
+            &kfc_path,
+            &mut ref_kfc_file,
+            &type_collection,
+            thread_count
+        );
+
+        match result {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                error!("{}", e);
+                revert_repack(game_dir, file_name, true)
+            }
+        }
+    } else {
+        fatal!("No input specified");
     }
 }
 
-fn repack0(
+fn repack_files(
     kfc_path: &Path,
-    kfc_file: &mut KFCFile,
+    ref_kfc_file: &mut KFCFile,
     files: Vec<PathBuf>,
     type_collection: &TypeCollection,
     thread_count: u8
@@ -395,9 +616,9 @@ fn repack0(
         fatal!("No files found to repack");
     }
 
-    let mut writer = match KFCWriter::new(kfc_path, kfc_file, type_collection) {
+    let mut writer = match KFCWriter::new(kfc_path, ref_kfc_file, type_collection) {
         Ok(writer) => writer,
-        Err(e) => fatal!("Failed to open enshrouded.kfc: {}", e)
+        Err(e) => fatal!("Failed to open {}: {}", kfc_path.display(), e)
     };
 
     let total = files.len() as u64;
@@ -541,16 +762,153 @@ fn repack0(
     Ok(())
 }
 
+fn repack_stdin(
+    kfc_path: &Path,
+    ref_kfc_file: &mut KFCFile,
+    type_collection: &TypeCollection,
+    thread_count: u8
+) -> Result<(), Error> {
+    let mut writer = match KFCWriter::new(kfc_path, ref_kfc_file, type_collection) {
+        Ok(writer) => writer,
+        Err(e) => fatal!("Failed to open {}: {}", kfc_path.display(), e)
+    };
+
+    let (tx_in, rx_in) = crossbeam_channel::unbounded::<(usize, String)>();
+    let (tx, rx) = std::sync::mpsc::sync_channel(1024);
+    let failed_repacks = AtomicU32::new(0);
+    let total = AtomicU32::new(0);
+    let start = std::time::Instant::now();
+
+    let result = std::thread::scope(|s| {
+        let failed_repacks = &failed_repacks;
+        let writer = &mut writer;
+        let total = &total;
+
+        let mut handles = Vec::new();
+
+        for _ in 0..thread_count {
+            let tx = tx.clone();
+            let rx_in = rx_in.clone();
+
+            let handle = s.spawn(move || {
+                for (i, descriptor_str) in rx_in.iter() {
+                    let descriptor = match serde_json::from_str::<serde_json::Value>(&descriptor_str) {
+                        Ok(d) => d,
+                        Err(e) => {
+                            failed_repacks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            error!("Error occurred while parsing descriptor {}: {}", i, e);
+                            continue;
+                        }
+                    };
+
+                    let result = match type_collection.serialize_descriptor(&descriptor) {
+                        Ok(result) => result,
+                        Err(e) => {
+                            failed_repacks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            error!("Error occurred while serializing descriptor {}: {}", i, e);
+                            continue;
+                        }
+                    };
+
+                    tx.send(result).unwrap();
+                }
+            });
+
+            handles.push(handle);
+        }
+
+        drop(tx);
+        drop(rx_in);
+
+        let in_handle = s.spawn(move || {
+            let stdin = std::io::stdin();
+
+            for (i, line) in stdin.lines().enumerate() {
+                let line = match line {
+                    Ok(line) => line,
+                    Err(e) => {
+                        error!("Error occurred while reading from stdin: {}", e);
+                        break;
+                    }
+                };
+
+                if line.is_empty() {
+                    continue;
+                }
+
+                let result = tx_in.send((i, line));
+
+                total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+                if result.is_err() {
+                    break;
+                }
+            }
+        });
+
+        let writer_handle = s.spawn(move || {
+            while let Ok((guid, data)) = rx.recv() {
+                match writer.write_descriptor_bytes(&guid, &data) {
+                    Ok(()) => {},
+                    Err(e) => {
+                        failed_repacks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        error!("Error occurred while writing `{}`: {}", guid.to_qualified_string(), e);
+                    }
+                }
+            }
+        });
+
+        match writer_handle.join() {
+            Ok(()) => {},
+            Err(e) => {
+                fatal!("Writer thread panicked: {:?}", e)
+            }
+        }
+
+        match in_handle.join() {
+            Ok(()) => {},
+            Err(e) => {
+                fatal!("Stdin reader thread panicked: {:?}", e)
+            }
+        }
+
+        for handle in handles {
+            handle.join().unwrap()
+        }
+
+        Ok(())
+    });
+
+    match result {
+        Ok(()) => {},
+        Err(e) => {
+            return Err(e);
+        }
+    }
+
+    match writer.finalize() {
+        Ok(()) => {},
+        Err(e) => {
+            return Err(Error(format!("Failed to write to {}: {}", kfc_path.display(), e)));
+        }
+    }
+
+    let total = total.load(std::sync::atomic::Ordering::Relaxed);
+    let failed_repacks = failed_repacks.load(std::sync::atomic::Ordering::Relaxed);
+    let end = std::time::Instant::now();
+
+    info!("Repacked a total of {}/{} descriptors in {:?}", total - failed_repacks, total, end - start);
+
+    Ok(())
+}
+
 fn revert_repack(
     game_dir: &Path,
+    file_name: Option<&str>,
     because_of_error: bool,
 ) -> Result<(), Error> {
-    let kfc_file = game_dir.join("enshrouded.kfc");
-    let kfc_file_bak = game_dir.join("enshrouded.kfc.bak");
-
-    if !kfc_file_bak.exists() {
-        fatal!("Backup file not found: {}", kfc_file_bak.display());
-    }
+    let kfc_file = get_file(game_dir, file_name, "kfc")?;
+    let kfc_file_bak = get_file(game_dir, file_name, "kfc.bak")?;
 
     if because_of_error {
         error!("An error occurred during repack, reverting changes...");
@@ -576,12 +934,11 @@ fn revert_repack(
     Ok(())
 }
 
-fn extract_types(game_dir: PathBuf) -> Result<(), Error> {
-    let executable = game_dir.join("enshrouded.exe");
-
-    if !executable.exists() {
-        fatal!("enshrouded.exe not found: {}", executable.display());
-    }
+fn extract_types(
+    game_dir: &Path,
+    file_name: Option<&str>,
+) -> Result<(), Error> {
+    let executable = get_file(game_dir, file_name, "exe")?;
 
     let mut type_collection = TypeCollection::default();
     let count = match type_collection.load_from_executable(executable, true) {
@@ -611,6 +968,7 @@ fn extract_types(game_dir: PathBuf) -> Result<(), Error> {
 
 fn load_type_collection(
     game_dir: Option<&Path>,
+    file_name: Option<&str>,
     retry_not_found: bool
 ) -> Result<TypeCollection, Error> {
     let mut type_collection = TypeCollection::default();
@@ -656,8 +1014,8 @@ fn load_type_collection(
             if let Some(game_dir) = game_dir {
                 if e.kind() == std::io::ErrorKind::NotFound && retry_not_found {
                     warn!("reflection_data.json not found, attempting to extract types first...");
-                    extract_types(game_dir.to_path_buf())?;
-                    return load_type_collection(Some(game_dir), false);
+                    extract_types(game_dir, file_name)?;
+                    return load_type_collection(Some(game_dir), file_name, false);
                 } else {
                     fatal!("Failed to load reflection_data.json: {}", e);
                 }
@@ -680,7 +1038,7 @@ fn assemble_impact(
     output_file: Option<&Path>,
     guid: Option<&str>,
 ) -> Result<(), Error> {
-    let type_collection = load_type_collection(None, true)?;
+    let type_collection = load_type_collection(None, None, true)?;
     let file_name = input_file.file_stem().unwrap().to_str().unwrap();
 
     let guid_str = guid
@@ -782,7 +1140,7 @@ fn disassemble_impact(
     input_file: &Path,
     output_file: Option<&Path>,
 ) -> Result<(), Error> {
-    let type_collection = load_type_collection(None, true)?;
+    let type_collection = load_type_collection(None, None, true)?;
     let output_file = output_file.unwrap_or(input_file);
     let file_name = output_file.file_stem().unwrap().to_str().unwrap();
 
@@ -860,7 +1218,7 @@ fn disassemble_impact(
 }
 
 fn extract_nodes() -> Result<(), Error> {
-    let type_collection = load_type_collection(None, true)?;
+    let type_collection = load_type_collection(None, None, true)?;
     let nodes = type_collection.get_impact_nodes()
         .into_values()
         .collect::<Vec<_>>();
@@ -882,4 +1240,60 @@ fn extract_nodes() -> Result<(), Error> {
     info!("Impact node data has been written to {}", std::path::absolute(output_path).unwrap().display());
 
     Ok(())
+}
+
+fn get_file(
+    game_dir: &Path,
+    file_name: Option<&str>,
+    extension: &str
+) -> Result<PathBuf, Error> {
+    let file_name = get_file_name(game_dir, file_name)?;
+    let file = game_dir.join(format!("{}.{}", file_name, extension));
+
+    if !file.exists() {
+        fatal!("File not found: {}", file.display());
+    }
+
+    Ok(file)
+}
+
+fn get_file_opt(
+    game_dir: &Path,
+    file_name: Option<&str>,
+    extension: &str
+) -> Result<PathBuf, Error> {
+    let file_name = get_file_name(game_dir, file_name)?;
+    let file = game_dir.join(format!("{}.{}", file_name, extension));
+
+    Ok(file)
+}
+
+fn get_file_name(
+    game_dir: &Path,
+    file_name: Option<&str>
+) -> Result<String, Error> {
+    if let Some(file_name) = file_name {
+        Ok(file_name.into())
+    } else if game_dir.join("enshrouded.kfc").exists() || game_dir.join("enshrouded.exe").exists() {
+        Ok("enshrouded".into())
+    } else if game_dir.join("enshrouded_server.kfc").exists() || game_dir.join("enshrouded_server.exe").exists() {
+        Ok("enshrouded_server".into())
+    } else {
+        // try to find file with .kfc or .exe extension
+        for file in std::fs::read_dir(game_dir).into_iter().flatten().flatten() {
+            if let Some(ext) = file.path().extension() {
+                if ext == "kfc" || ext == "exe" {
+                    let file = file.path();
+                    let file_name = file.file_stem()
+                        .and_then(|s| s.to_str());
+
+                    if let Some(file_name) = file_name {
+                        return Ok(file_name.into());
+                    }
+                }
+            }
+        }
+
+        fatal!("Unable to find the kfc/exe file in game directory, please specify it with --file_name");
+    }
 }
