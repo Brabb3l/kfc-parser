@@ -44,9 +44,9 @@ impl<'a> Tokenizer<'a> {
 
             '0'..='9' => {
                 self.skip_while(|c| c.is_numeric());
-                
+
                 let next = self.first();
-                
+
                 if next.is_ascii_alphanumeric() || next == '_' || next == ':' {
                     self.skip();
                     self.skip_while(|c| c.is_ascii_alphanumeric() || c == '_' || c == ':');
@@ -55,7 +55,7 @@ impl<'a> Tokenizer<'a> {
                     TokenKind::Number
                 }
             }
-            
+
             'a'..='z' | 'A'..='Z' | '_' => {
                 self.skip_while(|c| c.is_ascii_alphanumeric() || c == '_' || c == ':');
                 TokenKind::Identifier
@@ -69,24 +69,24 @@ impl<'a> Tokenizer<'a> {
 
         Token::new(kind, content, Span::new(start, end))
     }
-    
+
     #[inline]
     fn first(&self) -> char {
         self.cursor.first()
     }
-    
+
     #[inline]
     fn next(&mut self) -> Option<char> {
         self.column += 1;
         self.cursor.next()
     }
-    
+
     #[inline]
     fn skip(&mut self) {
         self.column += 1;
         self.cursor.skip();
     }
-    
+
     #[inline]
     fn skip_while<F>(&mut self, mut predicate: F)
     where

@@ -4,7 +4,7 @@ use thiserror::Error;
 pub enum PEParseError {
     #[error("IO error: {0}")]
     IO(#[from] std::io::Error),
-    
+
     #[error("Invalid DOS signature")]
     InvalidDosSignature,
     #[error("Invalid NT signature")]
@@ -21,7 +21,7 @@ pub enum ReflectionParseError {
     IO(#[from] std::io::Error),
     #[error("PE parse error: {0}")]
     PEParse(#[from] PEParseError),
-    
+
     #[error("Missing .data section")]
     MissingDataSection,
     #[error("Missing .rdata section")]
@@ -47,6 +47,8 @@ pub enum ReadError {
 
     #[error("Unknown type: {0}")]
     UnknownType(u32),
+    #[error("Root is not an object")]
+    RootNotObject,
 
     #[error("Invalid type hash: {0}")]
     InvalidTypeHash(u32),
@@ -57,8 +59,12 @@ pub enum WriteError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("Unknown type: {0}")]
-    UnknownType(u32),
+    #[error("Root is not an object")]
+    RootNotObject,
+    #[error("Missing root type specifier")]
+    MissingRootType,
+    #[error("Missing root guid specifier")]
+    MissingRootGuid,
 
     #[error("Incompatible type: got {got}, expected {expected}")]
     IncompatibleType {
@@ -80,6 +86,6 @@ pub enum WriteError {
     InvalidType(String),
     #[error("Malformed blob GUID: {0}")]
     MalformedBlobGuid(String),
-    #[error("Malformed descriptor GUID")]
-    MalformedDescriptorGuid,
+    #[error("Malformed descriptor GUID: {0}")]
+    MalformedDescriptorGuid(String),
 }

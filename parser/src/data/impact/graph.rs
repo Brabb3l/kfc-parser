@@ -89,7 +89,7 @@ impl<'a, 'b> ImpactProgramDecompiler<'a, 'b> {
             edges: Vec::new(),
         }
     }
-    
+
     pub fn decompile(mut self) -> ImpactNodeGraph {
         // decompile node graph flow
         self.decompile_section(&mut State {
@@ -717,7 +717,7 @@ impl<'a, 'b> ImpactProgramDecompiler<'a, 'b> {
     fn get_function_type(&self, index: u32) -> Option<&TypeInfo> {
         self.node_types.get(&index).copied()
     }
-    
+
     fn byte_offset_to_inst_offset(instructions: &mut [ImpactOps]) {
         let mut mappings = HashMap::new();
         let mut byte_offset = 0;

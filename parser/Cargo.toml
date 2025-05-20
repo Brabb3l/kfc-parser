@@ -15,4 +15,5 @@ bitflags.workspace = true
 half = "2.3.1"
 hound = "3.5.1"
 image = "0.24.8"
-texture2ddecoder = "0.0.5"
+texture2ddecoder = "0.1.1"
+bcdec_rs = "0.2.0"

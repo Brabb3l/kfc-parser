@@ -7,9 +7,9 @@ use crate::{guid::{BlobGuid, DescriptorGuid}, reflection::{ReadError, TypeCollec
 use super::KFCFile;
 
 pub struct KFCReader<'a, 'b> {
-    path: PathBuf,
-    file: &'a KFCFile,
-    type_collection: &'b TypeCollection,
+    pub path: PathBuf,
+    pub file: &'a KFCFile,
+    pub type_collection: &'b TypeCollection,
 
     reader: BufReader<File>,
     dat_readers: Vec<Option<BufReader<File>>>,
@@ -40,7 +40,7 @@ impl<'a, 'b> KFCReader<'a, 'b> {
             None => return Ok(None),
         };
 
-        Ok(Some(self.type_collection.deserialize_by_hash(guid.type_hash, &data)?))
+        Ok(Some(self.type_collection.deserialize_descriptor(guid, &data)?))
     }
 
     pub fn read_descriptor_into(
@@ -52,7 +52,7 @@ impl<'a, 'b> KFCReader<'a, 'b> {
             return Ok(None);
         }
 
-        Ok(Some(self.type_collection.deserialize_by_hash(guid.type_hash, buf)?))
+        Ok(Some(self.type_collection.deserialize_descriptor(guid, buf)?))
     }
 
     pub fn read_descriptor_bytes(

@@ -10,7 +10,7 @@ impl ImpactAssembler<'_> {
     pub fn parse_text(&self, data: &ImpactProgramData, code: &str) -> Result<Vec<ImpactOps>, ParseError> {
         Parser::new(&self.type_collection.get_impact_nodes(), data, code).parse()
     }
-    
+
     // TODO: Replace unwraps with proper error handling
     pub fn write_text<W: Write>(
         &self,
@@ -118,5 +118,5 @@ impl ImpactAssembler<'_> {
     fn get_call_type(&self, index: Hash32) -> Option<&ImpactNode> {
         self.nodes.get(&index)
     }
-    
+
 }

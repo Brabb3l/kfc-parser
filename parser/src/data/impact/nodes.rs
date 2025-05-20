@@ -64,7 +64,7 @@ impl TypeCollection {
         for node in node_types.values() {
             self.create_node(node, &mut nodes, None);
         }
-        
+
         nodes
     }
 
@@ -165,7 +165,7 @@ impl TypeCollection {
             node.struct_fields.iter()
                 .filter(|field|
                     field.attributes.iter()
-                        .any(|attr| attr.name == IMPACT_OUTPUT) || 
+                        .any(|attr| attr.name == IMPACT_OUTPUT) ||
                     self.get_type(field.r#type).unwrap().qualified_hash == IMPACT_NODE_EXECUTION_BRANCH_HASH
                 )
                 .map(|field| {
@@ -221,7 +221,7 @@ impl TypeCollection {
                     }
                 })
         );
-        
+
         let node = ImpactNode {
             name: shutdown_name.unwrap_or(&node.name),
             hash: fnv(shutdown_name.unwrap_or(&node.name)),
@@ -235,7 +235,7 @@ impl TypeCollection {
             configs,
             values,
         };
-        
+
         nodes.entry(node.hash)
             .or_insert_with(|| node)
     }

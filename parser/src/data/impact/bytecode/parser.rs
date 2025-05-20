@@ -21,7 +21,7 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
     ) -> Self {
         let mut tokenizer = Tokenizer::new(content);
         let next = tokenizer.advance();
-        
+
         Self {
             nodes,
             impact_data,
@@ -35,7 +35,7 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
         let mut label_mappings = HashMap::new();
         let mut instructions = Vec::new();
         let mut pc = 0;
-        
+
         while self.peek().kind != TokenKind::Eof {
             let token = self.expect(TokenKind::Identifier)?;
             let identifier = token.content;
@@ -90,7 +90,7 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
 
         Ok(instructions)
     }
-    
+
     fn parse_instruction(
         &'a self,
         keyword: KeywordKind,
@@ -118,7 +118,7 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
             KeywordKind::Rvm => ImpactOps::RVM,
             KeywordKind::DSelf => ImpactOps::DSelf,
             KeywordKind::Halt => ImpactOps::Halt,
-            
+
             KeywordKind::Br => {
                 let label = self.expect(TokenKind::Identifier)?;
                 let id = label_mappings.len();
@@ -137,7 +137,7 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
                 label_mappings.insert(id, label);
                 ImpactOps::BRF(id as u32)
             },
-            
+
             KeywordKind::IConst => ImpactOps::IConst(self.parse_data()?),
             KeywordKind::Load => ImpactOps::Load(self.parse_data()?),
             KeywordKind::GLoad => ImpactOps::GLoad(self.parse_data()?),
@@ -146,16 +146,16 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
 
             KeywordKind::Call => ImpactOps::Call(self.parse_call_type()?),
             KeywordKind::ECall => ImpactOps::ECall(self.parse_call_type()?),
-            
+
             KeywordKind::Unknown => ImpactOps::Unknown(self.parse_number()?),
         };
 
         Ok(op)
     }
-    
+
     fn parse_call_type(&self) -> Result<u32, ParseError> {
         let kind = { self.peek().kind };
-        
+
         match kind {
             TokenKind::Number => self.parse_number(),
             TokenKind::Identifier => {
@@ -170,7 +170,7 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
                         },
                     });
                 }
-                
+
                 Ok(hash)
             }
             _ => Err(ParseError {
@@ -194,7 +194,7 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
             },
         })
     }
-    
+
     fn parse_data(&self) -> Result<u32, ParseError> {
         let token = self.expect(TokenKind::Identifier)?;
         let data = self.impact_data.data.iter()
@@ -210,7 +210,7 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
 
         Ok(data)
     }
-    
+
     fn match_keyword(identifier: &str) -> Option<KeywordKind> {
         let kind = match identifier {
             "invalid" => KeywordKind::Invalid,
@@ -247,15 +247,15 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
             "unknown" => KeywordKind::Unknown,
             _ => return None,
         };
-        
+
         Some(kind)
     }
-    
+
     fn peek(&self) -> Ref<'_, Token<'a>> {
         self.skip_whitespace();
         self.peek0()
     }
-    
+
     fn next(&self) -> Token {
         self.skip_whitespace();
         self.next0()
@@ -276,7 +276,7 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
 
         Ok(token)
     }
-    
+
     fn is_whitespace(&self, token: &Token) -> bool {
         matches!(
             token.kind,
@@ -285,13 +285,13 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
             TokenKind::Newline
         )
     }
-    
+
     fn skip_whitespace(&self) {
         while self.is_whitespace(&self.peek0()) {
             self.next0();
         }
     }
-    
+
     fn peek0(&self) -> Ref<'_, Token<'a>> {
         self.next.borrow()
     }
@@ -300,5 +300,5 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
         let token = self.tokenizer.borrow_mut().advance();
         self.next.replace(token)
     }
-    
+
 }

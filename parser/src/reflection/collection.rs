@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use shared::hash::fnv;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -11,9 +12,16 @@ use super::{parser, ReflectionParseError, TypeParseError};
 
 #[derive(Debug, Default)]
 pub struct TypeCollection {
+    pub version: String,
     types: Vec<Arc<TypeInfo>>,
     types_by_qualified_hash: HashMap<u32, Arc<TypeInfo>>,
     types_by_impact_hash: HashMap<u32, Arc<TypeInfo>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TypeCollectionJson<T> {
+    version: String,
+    types: T,
 }
 
 impl TypeCollection {
@@ -21,10 +29,12 @@ impl TypeCollection {
     pub fn load_from_path(&mut self, path: impl AsRef<Path>) -> Result<usize, TypeParseError> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
+        let json = serde_json::from_reader::<_, TypeCollectionJson<Vec<TypeInfo>>>(reader)
+            .map_err(TypeParseError::from)?;
 
-        serde_json::from_reader(reader)
-            .map(|types| self.extend(types))
-            .map_err(TypeParseError::from)
+        self.version = json.version;
+
+        Ok(self.extend(json.types))
     }
 
     pub fn load_from_executable(
@@ -47,10 +57,15 @@ impl TypeCollection {
             .map(|node| node.as_ref())
             .collect::<Vec<_>>();
 
+        let json = TypeCollectionJson {
+            version: self.version.clone(),
+            types,
+        };
+
         if pretty {
-            serde_json::to_writer_pretty(writer, &types)?;
+            serde_json::to_writer_pretty(writer, &json)?;
         } else {
-            serde_json::to_writer(writer, &types)?;
+            serde_json::to_writer(writer, &json)?;
         }
 
         Ok(())
@@ -93,7 +108,7 @@ impl TypeCollection {
     ) -> Option<&TypeInfo> {
         self.get_type_by_impact_hash(fnv(name.as_bytes()))
     }
-    
+
     pub fn get_inheritance_chain<'a>(&'a self, node: &'a TypeInfo) -> Vec<&'a TypeInfo> {
         let mut chain = Vec::new();
         let mut current = node;
@@ -160,16 +175,21 @@ impl TypeCollection {
         self.types.iter()
             .map(|node| node.as_ref())
     }
-    
+
+    pub fn iter_arc(&self) -> impl Iterator<Item = &Arc<TypeInfo>> {
+        self.types.iter()
+    }
+
     /// Consumes the collection and returns the inner types.
-    /// 
+    ///
     /// # Errors
     /// If there are still strong references to the types in the collection,
     /// it will return an error with the unchanged collection.
-    /// 
+    ///
     /// # Panics
     /// It may panic if another thread creates a new strong
     /// reference to a type while this method is running.
+    #[allow(clippy::result_large_err)]
     pub fn into_inner(self) -> Result<Vec<TypeInfo>, TypeCollection> {
         for node in &self.types {
             if Arc::strong_count(node) > 3 {
@@ -179,12 +199,12 @@ impl TypeCollection {
 
         drop(self.types_by_impact_hash);
         drop(self.types_by_qualified_hash);
-        
+
         // panics if another thread creates a new strong reference
         let result = self.types.into_iter()
             .map(|node| Arc::try_unwrap(node).unwrap())
             .collect::<Vec<_>>();
-        
+
         Ok(result)
     }
 }

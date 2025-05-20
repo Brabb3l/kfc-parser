@@ -73,17 +73,17 @@ pub trait ReadExt: Read {
         assert_eq!(chunk.read_to_end(buf)?, len);
         Ok(())
     }
-    
+
     fn padding(&mut self, n: usize) -> std::io::Result<()> {
         let mut buf = vec![0; n];
         self.read_exact(&mut buf)?;
-        
+
         for byte in buf {
             if byte != 0 {
                 return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "padding is not 0"));
             }
         }
-        
+
         Ok(())
     }
 }
@@ -94,10 +94,10 @@ pub trait ReadSeekExt: Read + Seek + Sized {
     fn read_u32_offset(&mut self) -> std::io::Result<u64> {
         let pos = self.stream_position()?;
         let offset = self.read_u32()? as u64;
-        
+
         Ok(pos + offset)
     }
-    
+
     fn align(&mut self, alignment: usize) -> std::io::Result<usize> {
         let pos = self.stream_position()? as usize;
         let padding = (alignment - (pos % alignment)) % alignment;
@@ -154,7 +154,7 @@ pub trait WriteExt: Write {
         let s = &s[..len];
         self.write_all(s)
     }
-    
+
     fn padding(&mut self, n: u64) -> std::io::Result<()> {
         self.write_all(&vec![0; n as usize])
     }
@@ -168,15 +168,15 @@ pub trait WriteSeekExt: Write + Seek + Sized {
             self.write_u32(0)?;
             return Ok(());
         }
-        
+
         let pos = self.stream_position()?;
         let relative_offset = offset - pos;
-        
+
         self.write_u32(relative_offset as u32)?;
-        
+
         Ok(())
     }
-    
+
     fn align(&mut self, alignment: usize) -> std::io::Result<usize> {
         let pos = self.stream_position()? as usize;
         let padding = (alignment - (pos % alignment)) % alignment;

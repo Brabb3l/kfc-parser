@@ -10,7 +10,7 @@ pub struct KFCFile {
 
     dat_infos: Vec<DatInfo>,
     descriptor_locations: Vec<DescriptorLocation>,
-    
+
     blobs: StaticMap<BlobGuid, BlobLink>,
     descriptors: StaticMap<DescriptorGuid, DescriptorLink>,
 
@@ -39,16 +39,29 @@ impl Default for KFCFile {
 
 impl KFCFile {
 
-    pub fn from_path(path: &Path) -> Result<Self, KFCReadError> {
+    pub fn from_path(
+        path: &Path,
+        skip_entries: bool,
+    ) -> Result<Self, KFCReadError> {
         let file = File::open(path)?;
         let mut reader = BufReader::new(file);
-        Self::read(&mut reader)
+        Self::read(&mut reader, skip_entries)
     }
 
     pub fn from_reader<R: Read + Seek>(
-        reader: &mut R
+        reader: &mut R,
+        skip_entries: bool,
     ) -> Result<Self, KFCReadError> {
-        Self::read(reader)
+        Self::read(reader, skip_entries)
+    }
+
+    pub fn get_version_tag(path: &Path) -> Result<String, KFCReadError> {
+        let file = File::open(path)?;
+        let mut reader = BufReader::new(file);
+        let header = KFCHeader::read(&mut reader)?;
+        reader.seek(SeekFrom::Start(header.version.offset))?;
+        let version = reader.read_string(header.version.count)?;
+        Ok(version)
     }
 
     pub fn get_descriptor_guids(&self) -> &[DescriptorGuid] {
@@ -187,125 +200,143 @@ impl KFCFile {
 
 impl KFCFile {
 
-    fn read<R: Read + Seek>(reader: &mut R) -> Result<Self, KFCReadError> {
+    fn read<R: Read + Seek>(reader: &mut R, skip_entries: bool) -> Result<Self, KFCReadError> {
         let header = KFCHeader::read(reader)?;
-        
+
         // version
         reader.seek(SeekFrom::Start(header.version.offset))?;
         let version = reader.read_string(header.version.count)?;
-        
+
         // dat infos
         reader.seek(SeekFrom::Start(header.dat_infos.offset))?;
         let dat_infos = (0..header.dat_infos.count)
             .map(|_| DatInfo::read(reader))
             .collect::<Result<Vec<_>, _>>()?;
-        
+
         // descriptor locations
         reader.seek(SeekFrom::Start(header.descriptor_locations.offset))?;
         let descriptor_locations = (0..header.descriptor_locations.count)
             .map(|_| DescriptorLocation::read(reader))
             .collect::<Result<Vec<_>, _>>()?;
 
-        // group indices
-        reader.seek(SeekFrom::Start(header.descriptor_indices.offset))?;
-        let descriptor_indices = (0..header.descriptor_indices.count)
-            .map(|_| reader.read_u32())
-            .collect::<Result<Vec<_>, _>>()?;
+        if !skip_entries {
+            // group indices
+            reader.seek(SeekFrom::Start(header.descriptor_indices.offset))?;
+            let descriptor_indices = (0..header.descriptor_indices.count)
+                .map(|_| reader.read_u32())
+                .collect::<Result<Vec<_>, _>>()?;
 
-        // blob static map
-        
-        reader.seek(SeekFrom::Start(header.blob_buckets.offset))?;
-        let blob_buckets = (0..header.blob_buckets.count)
-            .map(|_| StaticMapBucket::read(reader))
-            .collect::<Result<Vec<_>, _>>()?;
-        
-        reader.seek(SeekFrom::Start(header.blob_guids.offset))?;
-        let blob_guids = (0..header.blob_guids.count)
-            .map(|_| BlobGuid::read(reader))
-            .collect::<Result<Vec<_>, _>>()?;
-        
-        reader.seek(SeekFrom::Start(header.blob_links.offset))?;
-        let blob_links = (0..header.blob_links.count)
-            .map(|_| BlobLink::read(reader))
-            .collect::<Result<Vec<_>, _>>()?;
-        
-        // descriptor static map
+            // blob static map
 
-        reader.seek(SeekFrom::Start(header.descriptor_buckets.offset))?;
-        let descriptor_buckets = (0..header.descriptor_buckets.count)
-            .map(|_| StaticMapBucket::read(reader))
-            .collect::<Result<Vec<_>, _>>()?;
-        
-        reader.seek(SeekFrom::Start(header.descriptor_guids.offset))?;
-        let descriptor_guids = (0..header.descriptor_guids.count)
-            .map(|_| DescriptorGuid::read(reader))
-            .collect::<Result<Vec<_>, _>>()?;
-        
-        reader.seek(SeekFrom::Start(header.descriptor_links.offset))?;
-        let descriptor_links = (0..header.descriptor_links.count)
-            .map(|_| DescriptorLink::read(reader))
-            .collect::<Result<Vec<_>, _>>()?;
-        
-        // group static map
+            reader.seek(SeekFrom::Start(header.blob_buckets.offset))?;
+            let blob_buckets = (0..header.blob_buckets.count)
+                .map(|_| StaticMapBucket::read(reader))
+                .collect::<Result<Vec<_>, _>>()?;
 
-        reader.seek(SeekFrom::Start(header.group_buckets.offset))?;
-        let group_buckets = (0..header.group_buckets.count)
-            .map(|_| StaticMapBucket::read(reader))
-            .collect::<Result<Vec<_>, _>>()?;
-        
-        reader.seek(SeekFrom::Start(header.group_hashes.offset))?;
-        let group_guids = (0..header.group_hashes.count)
-            .map(|_| reader.read_u32())
-            .collect::<Result<Vec<_>, _>>()?;
-        
-        reader.seek(SeekFrom::Start(header.group_infos.offset))?;
-        let group_links = (0..header.group_infos.count)
-            .map(|_| GroupInfo::read(reader))
-            .collect::<Result<Vec<_>, _>>()?;
-        
-        Ok(Self {
-            version,
-            dat_infos,
-            
-            descriptor_locations,
-            descriptor_indices,
+            reader.seek(SeekFrom::Start(header.blob_guids.offset))?;
+            let blob_guids = (0..header.blob_guids.count)
+                .map(|_| BlobGuid::read(reader))
+                .collect::<Result<Vec<_>, _>>()?;
 
-            blobs: StaticMap::from_parts(
-                blob_guids,
-                blob_links,
-                blob_buckets,
-            )?,
-            descriptors: StaticMap::from_parts(
-                descriptor_guids,
-                descriptor_links,
-                descriptor_buckets,
-            )?,
-            groups: StaticMap::from_parts(
-                group_guids,
-                group_links,
-                group_buckets,
-            )?,
-        })
+            reader.seek(SeekFrom::Start(header.blob_links.offset))?;
+            let blob_links = (0..header.blob_links.count)
+                .map(|_| BlobLink::read(reader))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            // descriptor static map
+
+            reader.seek(SeekFrom::Start(header.descriptor_buckets.offset))?;
+            let descriptor_buckets = (0..header.descriptor_buckets.count)
+                .map(|_| StaticMapBucket::read(reader))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            reader.seek(SeekFrom::Start(header.descriptor_guids.offset))?;
+            let descriptor_guids = (0..header.descriptor_guids.count)
+                .map(|_| DescriptorGuid::read(reader))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            reader.seek(SeekFrom::Start(header.descriptor_links.offset))?;
+            let descriptor_links = (0..header.descriptor_links.count)
+                .map(|_| DescriptorLink::read(reader))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            // group static map
+
+            reader.seek(SeekFrom::Start(header.group_buckets.offset))?;
+            let group_buckets = (0..header.group_buckets.count)
+                .map(|_| StaticMapBucket::read(reader))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            reader.seek(SeekFrom::Start(header.group_hashes.offset))?;
+            let group_guids = (0..header.group_hashes.count)
+                .map(|_| reader.read_u32())
+                .collect::<Result<Vec<_>, _>>()?;
+
+            reader.seek(SeekFrom::Start(header.group_infos.offset))?;
+            let group_links = (0..header.group_infos.count)
+                .map(|_| GroupInfo::read(reader))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(Self {
+                version,
+                dat_infos,
+
+                descriptor_locations,
+                descriptor_indices,
+
+                blobs: StaticMap::from_parts(
+                    blob_guids,
+                    blob_links,
+                    blob_buckets,
+                )?,
+                descriptors: StaticMap::from_parts(
+                    descriptor_guids,
+                    descriptor_links,
+                    descriptor_buckets,
+                )?,
+                groups: StaticMap::from_parts(
+                    group_guids,
+                    group_links,
+                    group_buckets,
+                )?,
+            })
+        } else {
+            Ok(Self {
+                version,
+                dat_infos: Vec::new(),
+                descriptor_locations,
+                descriptor_indices: Vec::new(),
+                blobs: StaticMap::default(),
+                descriptors: StaticMap::default(),
+                groups: StaticMap::default(),
+            })
+        }
+    }
+
+    pub(super) fn write_info<W: Write + Seek>(&self, writer: &mut W) -> Result<(), KFCWriteError> {
+        // OPTIMIZE: Only write the necessary parts of the file
+        self.write(writer)
     }
 
     pub(super) fn write<W: Write + Seek>(&self, writer: &mut W) -> Result<(), KFCWriteError> {
         KFCHeader::default().write(writer)?;
-        
+
         // version
         let version_offset = writer.stream_position()?;
         writer.write_string(&self.version, self.version.len())?;
         writer.align(8)?;
-        
+
         // dat infos
         let dat_infos_offset = writer.stream_position()?;
         for dat_info in &self.dat_infos {
             dat_info.write(writer)?;
         }
-        
+        writer.align(8)?;
+
         // descriptor locations
         let descriptor_locations_offset = writer.stream_position()?;
         DescriptorLocation::default().write(writer)?;
-        
+
         // group indices
         let descriptor_indices_offset = writer.stream_position()?;
         for descriptor_index in &self.descriptor_indices {
@@ -313,67 +344,66 @@ impl KFCFile {
         }
 
         // blob static map
-        
+
         let blob_buckets_offset = writer.stream_position()?;
         for blob_bucket in self.blobs.buckets() {
             blob_bucket.write(writer)?;
         }
-        
+
         let blob_guids_offset = writer.stream_position()?;
         for blob_guid in self.blobs.keys() {
             blob_guid.write(writer)?;
         }
         writer.align(8)?;
-        
+
         let blob_links_offset = writer.stream_position()?;
         for blob_link in self.blobs.values() {
             blob_link.write(writer)?;
         }
 
         // descriptor static map
-        
+
         let descriptor_buckets_offset = writer.stream_position()?;
         for descriptor_bucket in self.descriptors.buckets() {
             descriptor_bucket.write(writer)?;
         }
-        
+
         let descriptor_guids_offset = writer.stream_position()?;
         for descriptor_guid in self.descriptors.keys() {
             descriptor_guid.write(writer)?;
         }
         writer.align(8)?;
-        
+
         let descriptor_links_offset = writer.stream_position()?;
         for descriptor_link in self.descriptors.values() {
             descriptor_link.write(writer)?;
         }
 
         // group static map
-        
+
         let group_buckets_offset = writer.stream_position()?;
         for group_bucket in self.groups.buckets() {
             group_bucket.write(writer)?;
         }
-        
+
         let group_hashes_offset = writer.stream_position()?;
         for group_hash in self.groups.keys() {
             writer.write_u32(*group_hash)?;
         }
-        writer.align(8)?;
-        
+
         let group_infos_offset = writer.stream_position()?;
         for group_info in self.groups.values() {
             group_info.write(writer)?;
         }
-        
+
         let size = writer.stream_position()?;
-        
+
         // DescriptorLocation
         writer.seek(SeekFrom::Start(descriptor_locations_offset))?;
         for descriptor_location in &self.descriptor_locations {
             descriptor_location.write(writer)?;
         }
-        
+
         // KFCHeader
         let header = KFCHeader {
             size,
@@ -398,12 +428,12 @@ impl KFCFile {
 
             ..Default::default()
         };
-        
+
         writer.seek(SeekFrom::Start(0))?;
         header.write(writer)?;
-        
+
         writer.seek(SeekFrom::Start(size))?;
-        
+
         Ok(())
     }
 

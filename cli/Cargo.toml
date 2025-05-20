@@ -17,6 +17,7 @@ walkdir = "2.5.0"
 indicatif = "0.17.11"
 colored = "3.0.0"
 image = "0.25.5"
+crossbeam-channel = "0.5.15"
 
 [[bin]]
 name = "kfc-parser"

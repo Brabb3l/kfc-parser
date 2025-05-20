@@ -15,7 +15,7 @@ pub struct KFCWriter<'a, 'b> {
     descriptors: StaticMapBuilder<DescriptorGuid, DescriptorLink>,
     blobs: StaticMapBuilder<BlobGuid, BlobLink>,
 
-    header_space: u64,
+    old_header_space: u64,
     default_data_size: u64,
     default_data_size_unaligned: u64,
 
@@ -33,7 +33,7 @@ impl<'a, 'b> KFCWriter<'a, 'b> {
         reference_file: &'a KFCFile,
         type_collection: &'b TypeCollection,
     ) -> Result<Self, KFCReadError> {
-        let current_file = KFCFile::from_path(path)?;
+        let current_file = KFCFile::from_path(path, true)?;
         let header_space = current_file.data_offset();
         let default_data_size = reference_file.data_size() + (16 - (reference_file.data_size() % 16)) % 16;
         let default_data_size_unaligned = reference_file.data_size();
@@ -50,7 +50,7 @@ impl<'a, 'b> KFCWriter<'a, 'b> {
             descriptors: reference_file.get_descriptor_map().as_builder(),
             blobs: reference_file.get_blob_map().as_builder(),
 
-            header_space,
+            old_header_space: header_space,
             default_data_size,
             default_data_size_unaligned,
 
@@ -64,10 +64,19 @@ impl<'a, 'b> KFCWriter<'a, 'b> {
 
     pub fn write_descriptor(
         &mut self,
+        value: &JsonValue
+    ) -> Result<(), WriteError> {
+        let (guid, data) = self.type_collection.serialize_descriptor(value)?;
+
+        Ok(self.write_descriptor_bytes(&guid, &data)?)
+    }
+
+    pub fn write_descriptor_with_guid(
+        &mut self,
         guid: &DescriptorGuid,
         value: &JsonValue
     ) -> Result<(), WriteError> {
-        let data = self.type_collection.serialize_by_hash(guid.type_hash, value)?;
+        let (_, data) = self.type_collection.serialize_descriptor(value)?;
 
         Ok(self.write_descriptor_bytes(guid, &data)?)
     }
@@ -131,37 +140,29 @@ impl<'a, 'b> KFCWriter<'a, 'b> {
 
         file.write(&mut header_writer)?;
 
-        let mut header_size = header_writer.stream_position()?.max(self.header_space);
-        let padding = if header_size > self.header_space {
-            // add 64KiB padding to reduce consecutive default data movement
-            header_size += 0x10000;
-            0x10000
-        } else {
-            0
-        };
-        let overflow = header_size as i64 - self.header_space as i64;
+        let header_size = header_writer.stream_position()?;
+        let mut available_header_space = self.old_header_space;
+        let mut padding = 0;
 
-        file.set_data_location(header_size, size);
+        while available_header_space < header_size {
+            // add 64KiB padding to reduce consecutive default data movement
+            padding += 0x10000;
+            available_header_space += 0x10000;
+        }
+
+        file.set_data_location(available_header_space, size);
 
         // write data
 
         if padding > 0 {
-            Self::copy_within_file(&mut self.file, self.header_space, self.default_data_size_unaligned, header_size)?;
-        } else if overflow < 0 {
-            // zero out unused data
-            self.file.seek(SeekFrom::Start(header_size))?;
-            self.file.padding(-overflow as u64)?;
+            Self::copy_within_file(&mut self.file, self.old_header_space, self.default_data_size_unaligned, available_header_space)?;
         }
 
         let mut file_writer = BufWriter::new(self.file);
 
-        // TODO: Maybe add a function to only update the data location instead of reserializing the kfc file
         file_writer.seek(SeekFrom::Start(0))?;
-        file.write(&mut file_writer)?;
-
-        if padding > 0 {
-            file_writer.padding(padding)?;
-        }
+        file.write_info(&mut file_writer)?;
+        file_writer.padding(available_header_space - header_size)?;
 
         file_writer.seek(SeekFrom::Current(self.default_data_size as i64))?;
         file_writer.write_all(&data)?;
@@ -183,7 +184,7 @@ impl<'a, 'b> KFCWriter<'a, 'b> {
             const BUFFER_SIZE: u64 = 8192;
             let mut buf = vec![0u8; BUFFER_SIZE as usize];
             let mut remaining = len;
-            
+
             file.seek(SeekFrom::End(0))?;
 
             while remaining > 0 {

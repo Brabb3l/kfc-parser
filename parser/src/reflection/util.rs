@@ -1,4 +1,4 @@
-use super::{PrimitiveType, TypeCollection, TypeInfo};
+use super::{TypeCollection, TypeInfo};
 
 #[inline]
 pub fn prefix_pattern<const N: usize, const M: usize>(
@@ -16,21 +16,14 @@ impl TypeCollection {
     pub(super) fn get_inner_type(&self, type_entry: &TypeInfo) -> &TypeInfo {
         type_entry.inner_type.as_ref()
             .and_then(|t| self.get_type(*t))
-            .map(|t| self.unwrap_type_info(t))
+            .map(|t| self.resolve_typedef(t))
             .expect("invalid inner type")
     }
 
     pub(super) fn get_inner_type_opt(&self, type_entry: &TypeInfo) -> Option<&TypeInfo> {
         type_entry.inner_type.as_ref()
             .and_then(|t| self.get_type(*t))
-            .map(|t| self.unwrap_type_info(t))
+            .map(|t| self.resolve_typedef(t))
     }
 
-    fn unwrap_type_info<'a>(&'a self, type_entry: &'a TypeInfo) -> &'a TypeInfo {
-        match &type_entry.primitive_type {
-            PrimitiveType::Typedef => self.get_inner_type(type_entry),
-            _ => type_entry
-        }
-    }
-    
 }
