@@ -55,6 +55,15 @@ impl KFCFile {
         Self::read(reader, skip_entries)
     }
 
+    pub fn get_version_tag(path: &Path) -> Result<String, KFCReadError> {
+        let file = File::open(path)?;
+        let mut reader = BufReader::new(file);
+        let header = KFCHeader::read(&mut reader)?;
+        reader.seek(SeekFrom::Start(header.version.offset))?;
+        let version = reader.read_string(header.version.count)?;
+        Ok(version)
+    }
+
     pub fn get_descriptor_guids(&self) -> &[DescriptorGuid] {
         self.descriptors.keys()
     }

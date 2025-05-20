@@ -140,7 +140,7 @@ fn unpack(
 
     let file = match KFCFile::from_path(&kfc_file, false) {
         Ok(dir) => dir,
-        Err(e) => fatal!("Failed to read enshrouded.kfc: {}", e)
+        Err(e) => fatal!("Failed to read {}: {}", kfc_file.display(), e)
     };
 
     let mut name_mapper = DescriptorNameMapper::new(&type_collection);
@@ -287,7 +287,7 @@ fn unpack_files(
                     Ok(file) => file,
                     Err(e) => {
                         pb.suspend(|| {
-                            error!("Failed to open enshrouded.kfc: {}", e);
+                            error!("Failed to open {}: {}", kfc_file.display(), e);
                             error!("Worker #{} has been suspended", i);
                         });
                         return;
@@ -502,17 +502,17 @@ fn validate_backup(
     kfc_path: &Path,
     kfc_path_bak: &Path
 ) -> Result<bool, Error> {
-    let kfc_bak_file = match KFCFile::from_path(kfc_path_bak, true) {
+    let version_bak = match KFCFile::get_version_tag(kfc_path_bak) {
         Ok(file) => file,
         Err(_) => return Ok(false),
     };
 
-    let kfc_file = match KFCFile::from_path(kfc_path, true) {
+    let version = match KFCFile::get_version_tag(kfc_path) {
         Ok(file) => file,
         Err(e) => fatal!("Failed to read {}: {}", kfc_path.display(), e)
     };
 
-    Ok(kfc_bak_file.game_version() == kfc_file.game_version())
+    Ok(version == version_bak)
 }
 
 fn repack(
@@ -750,7 +750,7 @@ fn repack_files(
     match writer.finalize() {
         Ok(()) => {},
         Err(e) => {
-            return Err(Error(format!("Failed to write to enshrouded.kfc: {}", e)));
+            return Err(Error(format!("Failed to write to {}: {}", kfc_path.display(), e)));
         }
     }
 
@@ -950,6 +950,14 @@ fn extract_types(
 
     info!("Extracted a total of {} types", count);
 
+    let file_name = get_file(game_dir, file_name, "kfc")?;
+    let version_tag = match KFCFile::get_version_tag(&file_name) {
+        Ok(file) => file,
+        Err(e) => fatal!("Failed to read {}: {}", file_name.display(), e)
+    };
+
+    type_collection.version = version_tag;
+
     let path = current_exe().unwrap()
         .parent().unwrap()
         .join("reflection_data.json");
@@ -969,7 +977,7 @@ fn extract_types(
 fn load_type_collection(
     game_dir: Option<&Path>,
     file_name: Option<&str>,
-    retry_not_found: bool
+    retry: bool
 ) -> Result<TypeCollection, Error> {
     let mut type_collection = TypeCollection::default();
     let flag = AtomicBool::new(false);
@@ -1009,10 +1017,30 @@ fn load_type_collection(
     pb.finish_and_clear();
 
     let type_count = match result {
-        Ok(n) => n,
+        Ok(n) => {
+            if let Some(game_dir) = game_dir {
+                let kfc_path = get_file(game_dir, file_name, "kfc")?;
+                let version_tag = match KFCFile::get_version_tag(&kfc_path) {
+                    Ok(file) => file,
+                    Err(e) => fatal!("Failed to read {}: {}", kfc_path.display(), e)
+                };
+
+                if type_collection.version != version_tag {
+                    if retry {
+                        warn!("reflection_data.json is outdated, attempting to extract types again...");
+                        extract_types(game_dir, file_name)?;
+                        return load_type_collection(Some(game_dir), file_name, false);
+                    }
+
+                    fatal!("reflection_data.json is outdated, please extract types again");
+                }
+            }
+
+            n
+        },
         Err(TypeParseError::Io(e)) => {
             if let Some(game_dir) = game_dir {
-                if e.kind() == std::io::ErrorKind::NotFound && retry_not_found {
+                if e.kind() == std::io::ErrorKind::NotFound && retry {
                     warn!("reflection_data.json not found, attempting to extract types first...");
                     extract_types(game_dir, file_name)?;
                     return load_type_collection(Some(game_dir), file_name, false);
@@ -1025,7 +1053,17 @@ fn load_type_collection(
                 fatal!("Failed to load reflection_data.json: {}", e);
             }
         }
-        Err(e) => fatal!("Failed to load reflection_data.json: {}", e)
+        Err(TypeParseError::Json(e)) => {
+            if let Some(game_dir) = game_dir {
+                if retry {
+                    warn!("reflection_data.json is invalid, attempting to extract types again...");
+                    extract_types(game_dir, file_name)?;
+                    return load_type_collection(Some(game_dir), file_name, false);
+                }
+            }
+
+            fatal!("Failed to load reflection_data.json: {}", e)
+        }
     };
 
     info!("Loaded a total of {} types", type_count);
