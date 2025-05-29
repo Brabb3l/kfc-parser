@@ -1,0 +1,19 @@
+[package]
+name = "kfc-blob"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+[dependencies]
+kfc = { package = "kfc-base", path = "../kfc-base" }
+
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+half = "2.3.1"
+hound = "3.5.1"
+image = "0.24.8"
+texture2ddecoder = "0.1.1"
+bcdec_rs = "0.2.0"

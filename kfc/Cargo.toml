@@ -1,0 +1,13 @@
+[package]
+name = "kfc"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+[dependencies]
+kfc-base = { path = "../kfc-base" }
+kfc-blob = { path = "../kfc-blob", optional = true }
+
+[features]
+default = []
+blob = ["kfc-blob"]

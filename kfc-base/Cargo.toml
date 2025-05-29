@@ -1,0 +1,13 @@
+[package]
+name = "kfc-base"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+bitflags.workspace = true
+
+crc64fast = "1.1.0"

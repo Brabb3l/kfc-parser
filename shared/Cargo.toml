@@ -1,7 +1,0 @@
-[package]
-name = "shared"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
-crc64fast = "1.1.0"
