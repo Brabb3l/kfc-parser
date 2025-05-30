@@ -28,7 +28,7 @@ pub struct TypeInfo {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub enum_fields: Vec<EnumFieldInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_value: Option<serde_json::Value>,
+    pub default_value: Option<Vec<u8>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attributes: Vec<Attribute>,
 }

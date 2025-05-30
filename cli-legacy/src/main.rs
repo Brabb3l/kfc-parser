@@ -3,9 +3,10 @@ use colored::Colorize;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use kfc::container::{KFCFile, KFCReader, KFCWriter};
 use kfc::guid::DescriptorGuid;
-use kfc::reflection::{TypeCollection, TypeParseError};
+use kfc::reflection::TypeCollection;
 use kfc::blob::impact::bytecode::{ImpactAssembler, ImpactProgramData};
 use kfc::blob::impact::{ImpactProgram, TypeCollectionImpactExt};
+use thiserror::Error;
 use std::collections::HashSet;
 use std::env::current_exe;
 use std::fs::File;
@@ -21,7 +22,7 @@ use crate::logging::*;
 
 mod cli;
 mod logging;
-mod test;
+mod util;
 
 macro_rules! fatal {
     ($($arg:tt)*) => {
@@ -287,7 +288,7 @@ fn unpack_files(
 
                     let result: anyhow::Result<()> = (|| {
                         buf.clear();
-                        let descriptor = match reader.read_descriptor_into(guid, &mut buf)? {
+                        let descriptor = match crate::util::read_descriptor_into(&mut reader, guid, &mut buf)? {
                             Some(d) => d,
                             None => {
                                 pb.suspend(|| {
@@ -415,7 +416,7 @@ fn unpack_stdout(
                     };
 
                     buf.clear();
-                    let descriptor = match reader.read_descriptor_into(guid, &mut buf) {
+                    let descriptor = match crate::util::read_descriptor_into(&mut reader, guid, &mut buf) {
                         Ok(Some(d)) => match serde_json::to_string(&d) {
                             Ok(data) => data,
                             Err(e) => {
@@ -650,7 +651,7 @@ fn repack_files(
                     let result: anyhow::Result<()> = (|| {
                         let reader = BufReader::new(File::open(&file)?);
                         let descriptor = serde_json::from_reader::<_, serde_json::Value>(reader)?;
-                        let result = type_collection.serialize_descriptor(&descriptor)?;
+                        let result = crate::util::serialize_descriptor(type_collection, &descriptor)?;
 
                         tx.send(result).unwrap();
 
@@ -679,7 +680,7 @@ fn repack_files(
 
         let writer_handle = s.spawn(move || {
             while let Ok((guid, data)) = rx.recv() {
-                match writer.write_descriptor_bytes(&guid, &data) {
+                match writer.write_descriptor(&guid, &data) {
                     Ok(()) => {},
                     Err(e) => {
                         failed_repacks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -781,7 +782,7 @@ fn repack_stdin(
                         }
                     };
 
-                    let result = match type_collection.serialize_descriptor(&descriptor) {
+                    let result = match crate::util::serialize_descriptor(type_collection, &descriptor) {
                         Ok(result) => result,
                         Err(e) => {
                             failed_repacks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -828,7 +829,7 @@ fn repack_stdin(
 
         let writer_handle = s.spawn(move || {
             while let Ok((guid, data)) = rx.recv() {
-                match writer.write_descriptor_bytes(&guid, &data) {
+                match writer.write_descriptor(&guid, &data) {
                     Ok(()) => {},
                     Err(e) => {
                         failed_repacks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -921,7 +922,7 @@ fn extract_types(
     let executable = get_file(game_dir, file_name, "exe")?;
 
     let mut type_collection = TypeCollection::default();
-    let count = match type_collection.load_from_executable(executable, true) {
+    let count = match type_collection.load_from_executable(executable) {
         Ok(count) => count,
         Err(e) => {
             fatal!("Failed to extract types: {}", e)
@@ -942,7 +943,7 @@ fn extract_types(
         .parent().unwrap()
         .join("reflection_data.json");
 
-    match type_collection.dump_to_path(path, true) {
+    match dump_types_to_path(&type_collection, path, true) {
         Ok(_) => {},
         Err(e) => {
             fatal!("Failed to dump reflection data: {}", e)
@@ -959,7 +960,6 @@ fn load_type_collection(
     file_name: Option<&str>,
     retry: bool
 ) -> Result<TypeCollection, Error> {
-    let mut type_collection = TypeCollection::default();
     let flag = AtomicBool::new(false);
     let pb = ProgressBar::no_length();
 
@@ -977,7 +977,7 @@ fn load_type_collection(
         });
 
         let loading_handle = s.spawn(|| {
-            type_collection.load_from_path(
+            load_types_from_path(
                 current_exe().unwrap()
                     .parent().unwrap()
                     .join("reflection_data.json")
@@ -996,8 +996,8 @@ fn load_type_collection(
 
     pb.finish_and_clear();
 
-    let type_count = match result {
-        Ok(n) => {
+    let type_collection = match result {
+        Ok(type_collection) => {
             if let Some(game_dir) = game_dir {
                 let kfc_path = get_file(game_dir, file_name, "kfc")?;
                 let version_tag = match KFCFile::get_version_tag(&kfc_path) {
@@ -1016,7 +1016,7 @@ fn load_type_collection(
                 }
             }
 
-            n
+            type_collection
         },
         Err(TypeParseError::Io(e)) => {
             if let Some(game_dir) = game_dir {
@@ -1046,7 +1046,7 @@ fn load_type_collection(
         }
     };
 
-    info!("Loaded a total of {} types", type_count);
+    info!("Loaded a total of {} types", type_collection.len());
 
     Ok(type_collection)
 }
@@ -1314,4 +1314,39 @@ fn get_file_name(
 
         fatal!("Unable to find the kfc/exe file in game directory, please specify it with --file_name");
     }
+}
+
+fn load_types_from_path(
+    path: impl AsRef<Path>
+) -> Result<TypeCollection, TypeParseError> {
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+    let json = serde_json::from_reader::<_, TypeCollection>(reader)?;
+
+    Ok(json)
+}
+
+fn dump_types_to_path(
+    type_collection: &TypeCollection,
+    path: impl AsRef<Path>,
+    pretty: bool
+) -> Result<(), TypeParseError> {
+    let file = File::create(path)?;
+    let writer = BufWriter::new(file);
+
+    if pretty {
+        serde_json::to_writer_pretty(writer, type_collection)?;
+    } else {
+        serde_json::to_writer(writer, &type_collection)?;
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, Error)]
+pub enum TypeParseError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
 }

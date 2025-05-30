@@ -79,7 +79,8 @@ impl ImpactProgramData {
                     }),
                 });
             } else {
-                let json = type_collection.deserialize(
+                let json = kfc_descriptor::json::deserialize(
+                    type_collection,
                     type_info,
                     &program.data[start..end]
                 )?;
@@ -153,7 +154,12 @@ impl ImpactProgramData {
             } else {
                 if !entry.data.is_null() {
                     buf.clear();
-                    type_collection.serialize_into(type_info, &entry.data, &mut buf)?;
+                    kfc_descriptor::json::serialize_into(
+                        type_collection,
+                        type_info,
+                        &entry.data,
+                        &mut buf
+                    )?;
                 } else {
                     buf.clear();
                     buf.resize(type_info.size as usize, 0);

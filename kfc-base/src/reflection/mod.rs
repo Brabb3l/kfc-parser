@@ -4,7 +4,6 @@ mod pe_file;
 mod parser;
 mod types;
 mod collection;
-mod serialization;
 
 pub use types::*;
 pub use error::*;

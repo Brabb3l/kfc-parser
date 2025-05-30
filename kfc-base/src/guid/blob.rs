@@ -1,6 +1,5 @@
 use std::fmt::{Debug, Display};
 use std::io::{Read, Write};
-use std::num::ParseIntError;
 use std::str::FromStr;
 
 use serde::Deserialize;
@@ -86,19 +85,9 @@ impl FromStr for BlobGuid {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.len() != 32 {
-            return Err(format!("Invalid length: got {}, expected 32", s.len()));
-        }
-
-        let mut data = [0; 16];
-
-        for i in 0..16 {
-            data[15 - i] = u8::from_str_radix(&s[(i * 2)..(i * 2 + 2)], 16)
-                .map_err(|e: ParseIntError| format!("Failed to parse byte: {}", e))?;
-        }
-
         Ok(BlobGuid {
-            data,
+            data: super::string_to_guid(s)
+                .ok_or_else(|| format!("Invalid BlobGuid string: {}", s))?,
         })
     }
 }
@@ -111,11 +100,7 @@ impl Debug for BlobGuid {
 
 impl Display for BlobGuid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for i in (0..16).rev() {
-            write!(f, "{:0>2x}", self.data[i])?;
-        }
-
-        Ok(())
+        write!(f, "{}", super::guid_to_string(&self.data))
     }
 }
 

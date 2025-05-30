@@ -708,7 +708,8 @@ impl<'a, 'b> ImpactProgramDecompiler<'a, 'b> {
         let start = layout.offset_in_bytes as usize;
         let end = start + layout.size as usize;
 
-        self.type_collection.deserialize(
+        kfc_descriptor::json::deserialize(
+            self.type_collection,
             type_info,
             &self.program.data[start..end]
         ).expect("failed to deserialize data")

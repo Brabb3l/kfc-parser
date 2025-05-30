@@ -1,15 +1,13 @@
 use std::{borrow::Borrow, fs::File, io::{BufReader, Read, Seek, SeekFrom}, path::{Path, PathBuf}};
 
-use serde_json::Value as JsonValue;
-
-use crate::{guid::{BlobGuid, DescriptorGuid}, reflection::{ReadError, TypeCollection}};
+use crate::{guid::{BlobGuid, DescriptorGuid}, reflection::TypeCollection};
 
 use super::KFCFile;
 
 pub struct KFCReader<F, T> {
-    pub path: PathBuf,
-    pub file: F,
-    pub type_collection: T,
+    path: PathBuf,
+    file: F,
+    type_collection: T,
 
     reader: BufReader<File>,
     dat_readers: Vec<Option<BufReader<File>>>,
@@ -35,44 +33,32 @@ where
         })
     }
 
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn type_collection(&self) -> &TypeCollection {
+        self.type_collection.borrow()
+    }
+
+    pub fn file(&self) -> &KFCFile {
+        self.file.borrow()
+    }
+
     pub fn read_descriptor(
-        &mut self,
-        guid: &DescriptorGuid
-    ) -> Result<Option<JsonValue>, ReadError> {
-        let data = match self.read_descriptor_bytes(guid)? {
-            Some(data) => data,
-            None => return Ok(None),
-        };
-
-        Ok(Some(self.type_collection.borrow().deserialize_descriptor(guid, &data)?))
-    }
-
-    pub fn read_descriptor_into(
-        &mut self,
-        guid: &DescriptorGuid,
-        buf: &mut Vec<u8>
-    ) -> Result<Option<JsonValue>, ReadError> {
-        if !self.read_descriptor_bytes_into(guid, buf)? {
-            return Ok(None);
-        }
-
-        Ok(Some(self.type_collection.borrow().deserialize_descriptor(guid, buf)?))
-    }
-
-    pub fn read_descriptor_bytes(
         &mut self,
         guid: &DescriptorGuid
     ) -> std::io::Result<Option<Vec<u8>>> {
         let mut data = Vec::new();
 
-        if !self.read_descriptor_bytes_into(guid, &mut data)? {
+        if !self.read_descriptor_into(guid, &mut data)? {
             return Ok(None);
         }
 
         Ok(Some(data))
     }
 
-    pub fn read_descriptor_bytes_into(
+    pub fn read_descriptor_into(
         &mut self,
         guid: &DescriptorGuid,
         dst: &mut Vec<u8>

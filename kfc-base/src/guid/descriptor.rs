@@ -38,34 +38,8 @@ impl DescriptorGuid {
     ///
     /// If the string is not in the correct format, `None` is returned.
     pub fn from_str(s: &str, type_hash: Hash32, part_number: u32) -> Option<Self> {
-        if s.len() != 36 {
-            return None;
-        }
-
-        if !is_hex_slice(&s[0..8]) ||
-            !is_separator(s[8..].chars().next().unwrap()) ||
-            !is_hex_slice(&s[9..13]) ||
-            !is_separator(s[13..].chars().next().unwrap()) ||
-            !is_hex_slice(&s[14..18]) ||
-            !is_separator(s[18..].chars().next().unwrap()) ||
-            !is_hex_slice(&s[19..23]) ||
-            !is_separator(s[23..].chars().next().unwrap()) ||
-            !is_hex_slice(&s[24..36])
-        {
-            return None;
-        }
-
-        let mut data = [0; 16];
-
-        data[0..4].copy_from_slice(&u32::from_str_radix(&s[0..8], 16).unwrap().to_le_bytes());
-        data[4..6].copy_from_slice(&u16::from_str_radix(&s[9..13], 16).unwrap().to_le_bytes());
-        data[6..8].copy_from_slice(&u16::from_str_radix(&s[14..18], 16).unwrap().to_le_bytes());
-        data[8..10].copy_from_slice(&u16::from_str_radix(&s[19..23], 16).unwrap().to_be_bytes());
-        data[10..14].copy_from_slice(&u32::from_str_radix(&s[24..32], 16).unwrap().to_be_bytes());
-        data[14..16].copy_from_slice(&u16::from_str_radix(&s[32..36], 16).unwrap().to_be_bytes());
-
         Some(Self {
-            data,
+            data: super::string_to_guid(s)?,
             type_hash,
             part_number,
         })
@@ -81,9 +55,9 @@ impl DescriptorGuid {
             return None;
         }
 
-        if !is_section_separator(s[36..].chars().next().unwrap()) ||
-            !is_hex_slice(&s[37..45]) ||
-            !is_section_separator(s[45..].chars().next().unwrap())
+        if !super::is_section_separator(s[36..].chars().next().unwrap()) ||
+            !super::is_hex_slice(&s[37..45]) ||
+            !super::is_section_separator(s[45..].chars().next().unwrap())
         {
             return None;
         }
@@ -101,14 +75,7 @@ impl DescriptorGuid {
     /// Type hash and part number are not included in the string.
     #[allow(clippy::inherent_to_string_shadow_display)] // this is intentional
     pub fn to_string(&self) -> String {
-        let part_0 = u32::from_le_bytes([self.data[0], self.data[1], self.data[2], self.data[3]]);
-        let part_1 = u16::from_le_bytes([self.data[4], self.data[5]]);
-        let part_2 = u16::from_le_bytes([self.data[6], self.data[7]]);
-        let part_3 = u16::from_be_bytes([self.data[8], self.data[9]]);
-        let part_4 = u32::from_be_bytes([self.data[10], self.data[11], self.data[12], self.data[13]]);
-        let part_5 = u16::from_be_bytes([self.data[14], self.data[15]]);
-
-        format!("{:0>8x}-{:0>4x}-{:0>4x}-{:0>4x}-{:0>8x}{:0>4x}", part_0, part_1, part_2, part_3, part_4, part_5)
+        super::guid_to_string(&self.data)
     }
 
     /// Convert the DescriptorGuid to a qualified string with following format:
@@ -213,21 +180,6 @@ impl serde::Serialize for DescriptorGuid {
     {
         self.to_qualified_string().serialize(serializer)
     }
-}
-
-#[inline]
-fn is_hex_slice(s: &str) -> bool {
-    s.chars().all(|c| c.is_ascii_hexdigit())
-}
-
-#[inline]
-fn is_separator(c: char) -> bool {
-    c == '-'
-}
-
-#[inline]
-fn is_section_separator(c: char) -> bool {
-    c == '_'
 }
 
 #[cfg(test)]

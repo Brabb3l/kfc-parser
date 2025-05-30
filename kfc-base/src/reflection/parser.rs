@@ -1,16 +1,15 @@
 use std::collections::HashMap;
-use std::io::{Cursor, Read, Seek, SeekFrom};
+use std::io::{Cursor, Read, Seek};
 use std::path::Path;
 
 use crate::{hash::fnv, io::ReadExt};
 
 use super::pe_file::{PEFile, ReadPEExt};
 use super::types::*;
-use super::{ReflectionParseError, TypeCollection};
+use super::ReflectionParseError;
 
-pub fn extract_reflection_data(
-    exe_file: impl AsRef<Path>,
-    deserialize_default_values: bool,
+pub fn extract_reflection_data<P: AsRef<Path>>(
+    exe_file: P,
 ) -> Result<Vec<TypeInfo>, ReflectionParseError> {
     let pe_file = PEFile::load_from_file(exe_file)?;
     let data_section_offset = pe_file.offset_to_section(".data")
@@ -39,7 +38,6 @@ pub fn extract_reflection_data(
 
     let mut cursor = pe_file.get_cursor_at(offset)?;
     let mut table_cursor = cursor.read_pointee(&pe_file)?;
-    let start_position = table_cursor.stream_position()?;
     let table_count = cursor.read_u64()?;
 
     let mut reference_table = HashMap::new();
@@ -54,35 +52,9 @@ pub fn extract_reflection_data(
 
     for _ in 0..table_count {
         let mut type_cursor = table_cursor.read_pointee(&pe_file)?;
-        let ty = read_type(&mut type_cursor, &pe_file, &reference_table, false)?;
+        let ty = read_type(&mut type_cursor, &pe_file, &reference_table)?;
 
         table.push(ty);
-    }
-
-    if deserialize_default_values {
-        table_cursor.seek(SeekFrom::Start(start_position))?;
-
-        let mut type_collection = TypeCollection::default();
-        let mut values = Vec::with_capacity(table_count as usize);
-
-        type_collection.extend(table);
-
-        for _ in 0..table_count {
-            let mut type_cursor = table_cursor.read_pointee(&pe_file)?;
-            let value = read_default_value(
-                &mut type_cursor,
-                &pe_file,
-                &type_collection,
-            )?;
-
-            values.push(value);
-        }
-
-        table = type_collection.into_inner().unwrap();
-
-        for (ty, value) in table.iter_mut().zip(values) {
-            ty.default_value = value;
-        }
     }
 
     Ok(table)
@@ -125,16 +97,15 @@ pub fn extract_reflection_data(
 ///     HasBlobString = 0x04,
 ///     HasBlobOptional = 0x08,
 ///     HasBlobVariant = 0x10,
-///     Unknown_0x20 = 0x20, // shader/gpu related?
-///     Unknown_0x40 = 0x40, // shader/gpu related?
-///     Unknown_0x80 = 0x80, // shader/gpu related?
+///     IsGpuUniform = 0x20,
+///     IsGpuStorage = 0x40,
+///     IsGpuConstant = 0x80,
 /// }
 /// ```
 fn read_type(
     cursor: &mut Cursor<&[u8]>,
     pe_file: &PEFile,
     reference_table: &HashMap<u64, usize>,
-    skip_fields: bool
 ) -> std::io::Result<TypeInfo> {
     let name = cursor.read_pointee(pe_file)?
         .read_string(cursor.read_u64()? as usize)?;
@@ -158,30 +129,29 @@ fn read_type(
     let qualified_hash = cursor.read_u32()?;
     let internal_hash = cursor.read_u32()?;
 
-    let (struct_fields, enum_fields) = if !skip_fields {
-        let struct_fields = cursor.read_pointee_opt(pe_file)?
-            .map(|mut cursor| {
-                read_struct_fields(&mut cursor, field_count as u64, pe_file, reference_table)
-            })
-            .transpose()?
-            .unwrap_or_else(Vec::new);
+    let struct_fields = cursor.read_pointee_opt(pe_file)?
+        .map(|mut cursor| {
+            read_struct_fields(&mut cursor, field_count as u64, pe_file, reference_table)
+        })
+        .transpose()?
+        .unwrap_or_else(Vec::new);
 
-        let enum_fields = cursor.read_pointee_opt(pe_file)?
-            .map(|mut cursor| {
-                read_enum_fields(&mut cursor, field_count as u64, pe_file)
-            })
-            .transpose()?
-            .unwrap_or_else(Vec::new);
-
-        (struct_fields, enum_fields)
-    } else {
-        cursor.seek_relative(16)?;
-        (Vec::new(), Vec::new())
-    };
+    let enum_fields = cursor.read_pointee_opt(pe_file)?
+        .map(|mut cursor| {
+            read_enum_fields(&mut cursor, field_count as u64, pe_file)
+        })
+        .transpose()?
+        .unwrap_or_else(Vec::new);
 
     cursor.seek_relative(8)?; // skip variant_type
-    cursor.seek_relative(8)?; // skip default_value_ptr
-    cursor.seek_relative(8)?; // skip default_value_len
+
+    let default_value_cursor = cursor.read_pointee_opt(pe_file)?;
+    let default_value_len = cursor.read_u64()?;
+    let default_value = default_value_cursor.map(|mut cursor| -> std::io::Result<Vec<u8>> {
+        let mut value = vec![0; default_value_len as usize];
+        cursor.read_exact(&mut value)?;
+        Ok(value)
+    }).transpose()?;
 
     let attributes_cursor = cursor.read_pointee_opt(pe_file)?;
     let attributes_count = cursor.read_u64()?;
@@ -210,44 +180,9 @@ fn read_type(
         internal_hash,
         struct_fields,
         enum_fields,
-        default_value: None,
+        default_value,
         attributes,
     })
-}
-
-fn read_default_value(
-    cursor: &mut Cursor<&[u8]>,
-    pe_file: &PEFile,
-    type_collection: &TypeCollection,
-) -> std::io::Result<Option<serde_json::Value>> {
-    cursor.seek_relative(0x50)?; // skip to qualified_hash
-    let qualified_hash = cursor.read_u32()?;
-
-    cursor.seek_relative(0x20 - 0x04)?; // skip to default_value_ptr
-
-    let default_value_cursor = cursor.read_pointee_opt(pe_file)?;
-    let default_value_len = cursor.read_u64()?;
-
-    if let Some(mut cursor) = default_value_cursor {
-        let type_info = type_collection.get_type_by_qualified_hash(qualified_hash)
-            .ok_or_else(|| std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("Failed to find type by hash: {}", qualified_hash)
-            ))?;
-
-        let mut value = vec![0; default_value_len as usize];
-        cursor.read_exact(&mut value)?;
-
-        let value = type_collection.deserialize(type_info, &value)
-            .map_err(|e| std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("Failed to deserialize default value: {}", e)
-            ))?;
-
-        Ok(Some(value))
-    } else {
-        Ok(None)
-    }
 }
 
 fn read_struct_fields(

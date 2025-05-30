@@ -6,8 +6,10 @@ authors.workspace = true
 
 [dependencies]
 kfc-base = { path = "../kfc-base" }
+kfc-descriptor = { path = "../kfc-descriptor", optional = true }
 kfc-blob = { path = "../kfc-blob", optional = true }
 
 [features]
-default = []
+default = ["descriptor"]
+descriptor = ["kfc-descriptor"]
 blob = ["kfc-blob"]

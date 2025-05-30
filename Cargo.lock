@@ -642,6 +642,7 @@ dependencies = [
  "kfc",
  "serde",
  "serde_json",
+ "thiserror 2.0.11",
  "walkdir",
 ]
 
@@ -2271,6 +2272,7 @@ version = "0.1.0"
 dependencies = [
  "kfc-base",
  "kfc-blob",
+ "kfc-descriptor",
 ]
 
 [[package]]
@@ -2280,7 +2282,6 @@ dependencies = [
  "bitflags 2.8.0",
  "crc64fast",
  "serde",
- "serde_json",
  "thiserror 2.0.11",
 ]
 
@@ -2294,9 +2295,20 @@ dependencies = [
  "hound",
  "image 0.24.8",
  "kfc-base",
+ "kfc-descriptor",
  "serde",
  "serde_json",
  "texture2ddecoder",
+ "thiserror 2.0.11",
+]
+
+[[package]]
+name = "kfc-descriptor"
+version = "0.1.0"
+dependencies = [
+ "kfc-base",
+ "serde",
+ "serde_json",
  "thiserror 2.0.11",
 ]
 

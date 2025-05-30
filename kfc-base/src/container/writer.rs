@@ -1,8 +1,6 @@
 use std::{borrow::Borrow, fs::File, io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write}, path::{Path, PathBuf}};
 
-use serde_json::Value as JsonValue;
-
-use crate::{guid::{BlobGuid, DescriptorGuid}, io::{WriteExt, WriteSeekExt}, reflection::{TypeCollection, WriteError}};
+use crate::{guid::{BlobGuid, DescriptorGuid}, io::{WriteExt, WriteSeekExt}, reflection::TypeCollection};
 
 use super::{header::{BlobLink, DatInfo, DescriptorLink}, KFCFile, KFCReadError, KFCWriteError, StaticMapBuilder};
 
@@ -70,26 +68,19 @@ where
         })
     }
 
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn type_collection(&self) -> &TypeCollection {
+        self.type_collection.borrow()
+    }
+
+    pub fn file(&self) -> &KFCFile {
+        self.reference_file.borrow()
+    }
+
     pub fn write_descriptor(
-        &mut self,
-        value: &JsonValue
-    ) -> Result<(), WriteError> {
-        let (guid, data) = self.type_collection.borrow().serialize_descriptor(value)?;
-
-        Ok(self.write_descriptor_bytes(&guid, &data)?)
-    }
-
-    pub fn write_descriptor_with_guid(
-        &mut self,
-        guid: &DescriptorGuid,
-        value: &JsonValue
-    ) -> Result<(), WriteError> {
-        let (_, data) = self.type_collection.borrow().serialize_descriptor(value)?;
-
-        Ok(self.write_descriptor_bytes(guid, &data)?)
-    }
-
-    pub fn write_descriptor_bytes(
         &mut self,
         guid: &DescriptorGuid,
         bytes: &[u8]

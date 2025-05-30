@@ -1,16 +1,15 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::fs::File;
-use std::io::{BufReader, BufWriter};
 use std::path::Path;
 use std::sync::Arc;
 
 use crate::hash::fnv;
 
 use super::types::*;
-use super::{parser, ReflectionParseError, TypeParseError};
+use super::{parser, ReflectionParseError};
 
+// TODO: Remove `Arc`
 #[derive(Debug, Default)]
 pub struct TypeCollection {
     pub version: String,
@@ -19,57 +18,14 @@ pub struct TypeCollection {
     types_by_impact_hash: HashMap<u32, Arc<TypeInfo>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct TypeCollectionJson<T> {
-    version: String,
-    types: T,
-}
-
 impl TypeCollection {
-
-    pub fn load_from_path(&mut self, path: impl AsRef<Path>) -> Result<usize, TypeParseError> {
-        let file = File::open(path)?;
-        let reader = BufReader::new(file);
-        let json = serde_json::from_reader::<_, TypeCollectionJson<Vec<TypeInfo>>>(reader)
-            .map_err(TypeParseError::from)?;
-
-        self.version = json.version;
-
-        Ok(self.extend(json.types))
-    }
 
     pub fn load_from_executable(
         &mut self,
         path: impl AsRef<Path>,
-        deserialize_default_values: bool
     ) -> Result<usize, ReflectionParseError> {
-        parser::extract_reflection_data(path, deserialize_default_values)
+        parser::extract_reflection_data(path)
             .map(|types| self.extend(types))
-    }
-
-    pub fn dump_to_path(
-        &self,
-        path: impl AsRef<Path>,
-        pretty: bool
-    ) -> Result<(), TypeParseError> {
-        let file = File::create(path)?;
-        let writer = BufWriter::new(file);
-        let types = self.types.iter()
-            .map(|node| node.as_ref())
-            .collect::<Vec<_>>();
-
-        let json = TypeCollectionJson {
-            version: self.version.clone(),
-            types,
-        };
-
-        if pretty {
-            serde_json::to_writer_pretty(writer, &json)?;
-        } else {
-            serde_json::to_writer(writer, &json)?;
-        }
-
-        Ok(())
     }
 
     pub fn get_type(
@@ -207,5 +163,46 @@ impl TypeCollection {
             .collect::<Vec<_>>();
 
         Ok(result)
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct TypeCollectionSerde {
+    version: String,
+    types: Vec<TypeInfo>,
+}
+
+impl<'de> Deserialize<'de> for TypeCollection {
+    fn deserialize<D>(deserializer: D) -> Result<TypeCollection, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let data = TypeCollectionSerde::deserialize(deserializer)?;
+        let mut collection = TypeCollection {
+            version: data.version,
+            types: Vec::new(),
+            types_by_qualified_hash: HashMap::new(),
+            types_by_impact_hash: HashMap::new(),
+        };
+
+        collection.extend(data.types);
+
+        Ok(collection)
+    }
+}
+
+impl serde::Serialize for TypeCollection {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let data = TypeCollectionSerde {
+            version: self.version.clone(),
+            types: self.types.iter()
+                .map(|node| node.as_ref().clone())
+                .collect(),
+        };
+
+        data.serialize(serializer)
     }
 }
