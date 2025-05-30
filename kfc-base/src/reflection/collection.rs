@@ -2,20 +2,18 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::path::Path;
-use std::sync::Arc;
 
 use crate::hash::fnv;
 
 use super::types::*;
 use super::{parser, ReflectionParseError};
 
-// TODO: Remove `Arc`
 #[derive(Debug, Default)]
 pub struct TypeCollection {
     pub version: String,
-    types: Vec<Arc<TypeInfo>>,
-    types_by_qualified_hash: HashMap<u32, Arc<TypeInfo>>,
-    types_by_impact_hash: HashMap<u32, Arc<TypeInfo>>,
+    types: Vec<TypeInfo>,
+    types_by_qualified_hash: HashMap<u32, usize>,
+    types_by_impact_hash: HashMap<u32, usize>,
 }
 
 impl TypeCollection {
@@ -33,7 +31,6 @@ impl TypeCollection {
         index: usize,
     ) -> Option<&TypeInfo> {
         self.types.get(index)
-            .map(|node| node.as_ref())
     }
 
     pub fn get_type_by_qualified_hash(
@@ -41,7 +38,7 @@ impl TypeCollection {
         hash: u32
     ) -> Option<&TypeInfo> {
         self.types_by_qualified_hash.get(&hash)
-            .map(|node| node.as_ref())
+            .and_then(|&index| self.get_type(index))
     }
 
     pub fn get_type_by_impact_hash(
@@ -49,7 +46,7 @@ impl TypeCollection {
         hash: u32
     ) -> Option<&TypeInfo> {
         self.types_by_impact_hash.get(&hash)
-            .map(|node| node.as_ref())
+            .and_then(|&index| self.get_type(index))
     }
 
     pub fn get_type_by_qualified_name(
@@ -66,7 +63,10 @@ impl TypeCollection {
         self.get_type_by_impact_hash(fnv(name.as_bytes()))
     }
 
-    pub fn get_inheritance_chain<'a>(&'a self, node: &'a TypeInfo) -> Vec<&'a TypeInfo> {
+    pub fn get_inheritance_chain<'a>(
+        &'a self,
+        node: &'a TypeInfo
+    ) -> Vec<&'a TypeInfo> {
         let mut chain = Vec::new();
         let mut current = node;
 
@@ -94,26 +94,31 @@ impl TypeCollection {
     }
 
     pub fn extend(&mut self, types: Vec<TypeInfo>) -> usize {
+        if self.types.is_empty() {
+            self.types.reserve_exact(types.len());
+            self.types_by_qualified_hash.reserve(types.len());
+        }
+
         let len = types.len();
 
         // TODO: Handle duplicates properly
 
-        for entry in types {
-            let value = Arc::new(entry);
+        for value in types {
+            let index = self.types.len();
 
             if !value.flags.contains(TypeFlags::HAS_DS) {
                 if self.types_by_impact_hash.contains_key(&value.impact_hash) {
                     panic!("Duplicate impact hash: {:#010X}", value.impact_hash);
                 }
 
-                self.types_by_impact_hash.insert(value.impact_hash, value.clone());
+                self.types_by_impact_hash.insert(value.impact_hash, index);
             }
 
             if self.types_by_qualified_hash.contains_key(&value.qualified_hash) {
                 panic!("Duplicate qualified hash: {:#010X}", value.qualified_hash);
             }
 
-            self.types_by_qualified_hash.insert(value.qualified_hash, value.clone());
+            self.types_by_qualified_hash.insert(value.qualified_hash, index);
             self.types.push(value);
         }
 
@@ -130,46 +135,24 @@ impl TypeCollection {
 
     pub fn iter(&self) -> impl Iterator<Item = &TypeInfo> {
         self.types.iter()
-            .map(|node| node.as_ref())
-    }
-
-    pub fn iter_arc(&self) -> impl Iterator<Item = &Arc<TypeInfo>> {
-        self.types.iter()
     }
 
     /// Consumes the collection and returns the inner types.
-    ///
-    /// # Errors
-    /// If there are still strong references to the types in the collection,
-    /// it will return an error with the unchanged collection.
-    ///
-    /// # Panics
-    /// It may panic if another thread creates a new strong
-    /// reference to a type while this method is running.
-    #[allow(clippy::result_large_err)]
-    pub fn into_inner(self) -> Result<Vec<TypeInfo>, TypeCollection> {
-        for node in &self.types {
-            if Arc::strong_count(node) > 3 {
-                return Err(self);
-            }
-        }
-
-        drop(self.types_by_impact_hash);
-        drop(self.types_by_qualified_hash);
-
-        // panics if another thread creates a new strong reference
-        let result = self.types.into_iter()
-            .map(|node| Arc::try_unwrap(node).unwrap())
-            .collect::<Vec<_>>();
-
-        Ok(result)
+    pub fn into_inner(self) -> Vec<TypeInfo> {
+        self.types
     }
 }
 
-#[derive(Serialize, Deserialize)]
-struct TypeCollectionSerde {
+#[derive(Deserialize)]
+struct TypeCollectionSerdeOwned {
     version: String,
     types: Vec<TypeInfo>,
+}
+
+#[derive(Serialize)]
+struct TypeCollectionSerdeRef<'a> {
+    version: &'a str,
+    types: &'a [TypeInfo],
 }
 
 impl<'de> Deserialize<'de> for TypeCollection {
@@ -177,12 +160,10 @@ impl<'de> Deserialize<'de> for TypeCollection {
     where
         D: serde::Deserializer<'de>,
     {
-        let data = TypeCollectionSerde::deserialize(deserializer)?;
+        let data = TypeCollectionSerdeOwned::deserialize(deserializer)?;
         let mut collection = TypeCollection {
             version: data.version,
-            types: Vec::new(),
-            types_by_qualified_hash: HashMap::new(),
-            types_by_impact_hash: HashMap::new(),
+            ..Default::default()
         };
 
         collection.extend(data.types);
@@ -196,11 +177,9 @@ impl serde::Serialize for TypeCollection {
     where
         S: serde::Serializer,
     {
-        let data = TypeCollectionSerde {
-            version: self.version.clone(),
-            types: self.types.iter()
-                .map(|node| node.as_ref().clone())
-                .collect(),
+        let data = TypeCollectionSerdeRef {
+            version: &self.version,
+            types: &self.types
         };
 
         data.serialize(serializer)
