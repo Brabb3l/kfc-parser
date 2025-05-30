@@ -943,7 +943,7 @@ fn extract_types(
         .parent().unwrap()
         .join("reflection_data.json");
 
-    match dump_types_to_path(&type_collection, path, true) {
+    match dump_types_to_path(&type_collection, path, false) {
         Ok(_) => {},
         Err(e) => {
             fatal!("Failed to dump reflection data: {}", e)
