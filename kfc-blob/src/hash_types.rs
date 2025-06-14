@@ -17,20 +17,20 @@ impl From<u32> for HashKey32 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContentHash {
+    pub size: u32,
     pub hash0: u32,
     pub hash1: u32,
     pub hash2: u32,
-    pub size: u32,
 }
 
 impl ContentHash {
 
     pub fn as_blob_guid(&self) -> BlobGuid {
-        BlobGuid::from_parts(self.hash0, self.hash1, self.hash2, self.size)
+        BlobGuid::from_parts(self.size, self.hash0, self.hash1, self.hash2)
     }
 
     pub fn into_blob_guid(self) -> BlobGuid {
-        BlobGuid::from_parts(self.hash0, self.hash1, self.hash2, self.size)
+        BlobGuid::from_parts(self.size, self.hash0, self.hash1, self.hash2)
     }
 
 }

@@ -1,16 +1,19 @@
 use std::collections::HashMap;
-use std::io::{Cursor, Read, Seek};
+use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek};
 use std::path::Path;
 
+use indexmap::IndexMap;
+
+use crate::reflection::TypeIndex;
 use crate::{hash::fnv, io::ReadExt};
 
 use super::pe_file::{PEFile, ReadPEExt};
 use super::types::*;
-use super::ReflectionParseError;
+use super::error::ReflectionParseError;
 
 pub fn extract_reflection_data<P: AsRef<Path>>(
     exe_file: P,
-) -> Result<Vec<TypeInfo>, ReflectionParseError> {
+) -> std::result::Result<Vec<TypeMetadata>, ReflectionParseError> {
     let pe_file = PEFile::load_from_file(exe_file)?;
     let data_section_offset = pe_file.offset_to_section(".data")
         .ok_or(ReflectionParseError::MissingDataSection)?;
@@ -50,9 +53,14 @@ pub fn extract_reflection_data<P: AsRef<Path>>(
 
     let mut table = Vec::with_capacity(table_count as usize);
 
-    for _ in 0..table_count {
+    for i in 0..table_count {
         let mut type_cursor = table_cursor.read_pointee(&pe_file)?;
-        let ty = read_type(&mut type_cursor, &pe_file, &reference_table)?;
+        let ty = read_type(
+            &mut type_cursor,
+            &pe_file,
+            &reference_table,
+            TypeIndex(i as usize)
+        )?;
 
         table.push(ty);
     }
@@ -63,7 +71,7 @@ pub fn extract_reflection_data<P: AsRef<Path>>(
 /// # Layout
 ///
 /// ```c
-/// struct TypeInfo {
+/// struct TypeMetadata {
 ///     char* name_ptr;
 ///     u64 name_len;
 ///     char* impact_name_ptr;
@@ -71,7 +79,7 @@ pub fn extract_reflection_data<P: AsRef<Path>>(
 ///     char* qualified_name_ptr;
 ///     u64 qualified_name_len;
 ///     Namespace* namespace;
-///     TypeInfo* inner_type;
+///     TypeMetadata* inner_type;
 ///     u32 size;
 ///     u16 alignment;
 ///     u16 element_alignment;
@@ -81,9 +89,9 @@ pub fn extract_reflection_data<P: AsRef<Path>>(
 ///     u8 padding[2];
 ///     u32 qualified_hash; // @0x50
 ///     u32 internal_hash;
-///     StructFieldInfo* struct_fields[field_count]; // ptr to array of field_count StructFieldInfos
-///     EnumFieldInfo* enum_fields[field_count]; // ptr to array of field_count EnumFieldInfos
-///     TypeInfo** variant_type; // contains as inner_type
+///     StructFieldMetadata* struct_fields[field_count]; // ptr to array of field_count StructFieldMetadatas
+///     EnumFieldMetadata* enum_fields[field_count]; // ptr to array of field_count EnumFieldMetadatas
+///     TypeMetadata** variant_type; // contains as inner_type
 ///     u8* default_value_ptr; // @0x70
 ///     u64 default_value_len;
 ///     Attribute* attributes_ptr;
@@ -106,7 +114,8 @@ fn read_type(
     cursor: &mut Cursor<&[u8]>,
     pe_file: &PEFile,
     reference_table: &HashMap<u64, usize>,
-) -> std::io::Result<TypeInfo> {
+    index: TypeIndex,
+) -> Result<TypeMetadata> {
     let name = cursor.read_pointee(pe_file)?
         .read_string(cursor.read_u64()? as usize)?;
     let impact_name = cursor.read_pointee(pe_file)?
@@ -131,40 +140,55 @@ fn read_type(
 
     let struct_fields = cursor.read_pointee_opt(pe_file)?
         .map(|mut cursor| {
-            read_struct_fields(&mut cursor, field_count as u64, pe_file, reference_table)
+            read_struct_fields(
+                &mut cursor,
+                field_count as u64,
+                pe_file,
+                reference_table
+            )
         })
         .transpose()?
-        .unwrap_or_else(Vec::new);
+        .unwrap_or_else(IndexMap::new);
 
     let enum_fields = cursor.read_pointee_opt(pe_file)?
         .map(|mut cursor| {
-            read_enum_fields(&mut cursor, field_count as u64, pe_file)
+            read_enum_fields(
+                &mut cursor,
+                field_count as u64,
+                pe_file
+            )
         })
         .transpose()?
-        .unwrap_or_else(Vec::new);
+        .unwrap_or_else(IndexMap::new);
 
     cursor.seek_relative(8)?; // skip variant_type
 
     let default_value_cursor = cursor.read_pointee_opt(pe_file)?;
     let default_value_len = cursor.read_u64()?;
-    let default_value = default_value_cursor.map(|mut cursor| -> std::io::Result<Vec<u8>> {
+    let default_value = default_value_cursor.map(|mut cursor| {
         let mut value = vec![0; default_value_len as usize];
         cursor.read_exact(&mut value)?;
-        Ok(value)
+        Result::Ok(value)
     }).transpose()?;
 
     let attributes_cursor = cursor.read_pointee_opt(pe_file)?;
     let attributes_count = cursor.read_u64()?;
     let attributes = attributes_cursor.map(|mut cursor| {
-        read_attributes(&mut cursor, attributes_count, pe_file, reference_table)
+        read_attributes(
+            &mut cursor,
+            attributes_count,
+            pe_file,
+            reference_table
+        )
     })
         .transpose()?
-        .unwrap_or_else(Vec::new);
+        .unwrap_or_else(IndexMap::new);
 
-    Ok(TypeInfo {
+    Ok(TypeMetadata {
         name_hash: fnv(&name),
         impact_hash: fnv(&impact_name),
 
+        index,
         name,
         impact_name,
         qualified_name,
@@ -190,11 +214,17 @@ fn read_struct_fields(
     count: u64,
     pe_file: &PEFile,
     reference_table: &HashMap<u64, usize>,
-) -> std::io::Result<Vec<StructFieldInfo>> {
-    let mut fields = Vec::with_capacity(count as usize);
+) -> Result<IndexMap<String, StructFieldMetadata>> {
+    let mut fields = IndexMap::with_capacity(count as usize);
 
     for _ in 0..count {
-        fields.push(read_struct_field(cursor, pe_file, reference_table)?);
+        let field = read_struct_field(
+            cursor,
+            pe_file,
+            reference_table
+        )?;
+
+        fields.insert(field.name.clone(), field);
     }
 
     Ok(fields)
@@ -203,10 +233,10 @@ fn read_struct_fields(
 /// # Layout
 ///
 /// ```c
-/// struct StructFieldInfo {
+/// struct StructFieldMetadata {
 ///     char* name_ptr;
 ///     u64 name_len;
-///     TypeInfo* type;
+///     TypeMetadata* type;
 ///     u64 data_offset;
 ///     Attribute* attributes;
 ///     u64 attributes_count;
@@ -216,24 +246,29 @@ fn read_struct_field(
     cursor: &mut Cursor<&[u8]>,
     pe_file: &PEFile,
     reference_table: &HashMap<u64, usize>,
-) -> std::io::Result<StructFieldInfo> {
+) -> Result<StructFieldMetadata> {
     let name = cursor.read_pointee(pe_file)?
         .read_string(cursor.read_u64()? as usize)?;
-    let type_info = read_type_ref(cursor, reference_table)?
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "TypeRef is None"))?;
+    let r#type = read_type_ref(cursor, reference_table)?
+        .ok_or_else(|| Error::new(ErrorKind::InvalidData, "TypeRef is None"))?;
     let data_offset = cursor.read_u64()?;
     let attributes_cursor = cursor.read_pointee_opt(pe_file)?;
     let attribute_count = cursor.read_u64()?;
 
     let attributes = attributes_cursor.map(|mut cursor| {
-        read_attributes(&mut cursor, attribute_count, pe_file, reference_table)
+        read_attributes(
+            &mut cursor,
+            attribute_count,
+            pe_file,
+            reference_table
+        )
     })
         .transpose()?
-        .unwrap_or_else(Vec::new);
+        .unwrap_or_else(IndexMap::new);
 
-    Ok(StructFieldInfo {
+    Ok(StructFieldMetadata {
         name,
-        r#type: type_info,
+        r#type,
         data_offset,
         attributes,
     })
@@ -243,11 +278,16 @@ fn read_enum_fields(
     cursor: &mut Cursor<&[u8]>,
     count: u64,
     pe_file: &PEFile,
-) -> std::io::Result<Vec<EnumFieldInfo>> {
-    let mut fields = Vec::with_capacity(count as usize);
+) -> Result<IndexMap<String, EnumFieldMetadata>> {
+    let mut fields = IndexMap::with_capacity(count as usize);
 
     for _ in 0..count {
-        fields.push(read_enum_field(cursor, pe_file)?);
+        let field = read_enum_field(
+            cursor,
+            pe_file
+        )?;
+
+        fields.insert(field.name.clone(), field);
     }
 
     Ok(fields)
@@ -256,7 +296,7 @@ fn read_enum_fields(
 /// # Layout
 ///
 /// ```c
-/// struct EnumFieldInfo {
+/// struct EnumFieldMetadata {
 ///     char* name_ptr;
 ///     u64 name_len;
 ///     u64 value;
@@ -266,14 +306,14 @@ fn read_enum_fields(
 fn read_enum_field(
     cursor: &mut Cursor<&[u8]>,
     pe_file: &PEFile,
-) -> std::io::Result<EnumFieldInfo> {
+) -> Result<EnumFieldMetadata> {
     let name = cursor.read_pointee(pe_file)?
         .read_string(cursor.read_u64()? as usize)?;
     let value = cursor.read_u64()?;
 
     cursor.padding(16)?;
 
-    Ok(EnumFieldInfo {
+    Ok(EnumFieldMetadata {
         name,
         value,
     })
@@ -284,11 +324,17 @@ fn read_attributes(
     count: u64,
     pe_file: &PEFile,
     reference_table: &HashMap<u64, usize>,
-) -> std::io::Result<Vec<Attribute>> {
-    let mut attributes = Vec::with_capacity(count as usize);
+) -> Result<IndexMap<String, Attribute>> {
+    let mut attributes = IndexMap::with_capacity(count as usize);
 
     for _ in 0..count {
-        attributes.push(read_attribute(cursor, pe_file, reference_table)?);
+        let attribute = read_attribute(
+            cursor,
+            pe_file,
+            reference_table
+        )?;
+
+        attributes.insert(attribute.name.clone(), attribute);
     }
 
     Ok(attributes)
@@ -298,23 +344,23 @@ fn read_attributes(
 ///
 /// ```c
 /// struct Attribute {
-///     AttributeInfo* info;
+///     AttributeMetadata* metadata;
 ///     char* value_ptr;
 ///     u64 value_len;
 /// }
 ///
-/// struct AttributeInfo {
+/// struct AttributeMetadata {
 ///     Namespace* namespace;
 ///     char* name_ptr;
 ///     u64 name_len;
-///     TypeInfo* type;
+///     TypeMetadata* type;
 /// }
 /// ```
 fn read_attribute(
     cursor: &mut Cursor<&[u8]>,
     pe_file: &PEFile,
     reference_table: &HashMap<u64, usize>,
-) -> std::io::Result<Attribute> {
+) -> Result<Attribute> {
     let mut data_cursor = cursor.read_pointee(pe_file)?;
     let value = cursor.read_pointee(pe_file)?
         .read_string(cursor.read_u64()? as usize)?;
@@ -345,7 +391,7 @@ fn read_attribute(
 fn read_namespace(
     cursor: Cursor<&[u8]>,
     pe_file: &PEFile,
-) -> std::io::Result<Vec<String>> {
+) -> Result<Vec<String>> {
     let mut namespaces = Vec::new();
     let mut parent_cursor = Some(cursor);
 
@@ -365,12 +411,12 @@ fn read_namespace(
 fn read_type_ref(
     cursor: &mut Cursor<&[u8]>,
     reference_table: &HashMap<u64, usize>,
-) -> std::io::Result<Option<usize>> {
+) -> Result<Option<TypeIndex>> {
     let offset = cursor.read_u64()?;
 
     if offset == 0 {
         return Ok(None);
     }
 
-    Ok(reference_table.get(&offset).copied())
+    Ok(reference_table.get(&offset).copied().map(TypeIndex))
 }

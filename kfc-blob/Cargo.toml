@@ -8,10 +8,9 @@ authors.workspace = true
 kfc = { package = "kfc-base", path = "../kfc-base" }
 kfc-descriptor = { package = "kfc-descriptor", path = "../kfc-descriptor" }
 
-anyhow.workspace = true
+anyhow.workspace = true # TODO: Remove this dependency (used only for prototyping)
 thiserror.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 
 half = "2.3.1"
 hound = "3.5.1"

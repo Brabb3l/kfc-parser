@@ -1,13 +1,13 @@
 use std::{borrow::Borrow, fs::File, io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write}, path::{Path, PathBuf}};
 
-use crate::{guid::{BlobGuid, DescriptorGuid}, io::{WriteExt, WriteSeekExt}, reflection::TypeCollection};
+use crate::{guid::{BlobGuid, DescriptorGuid}, io::{WriteExt, WriteSeekExt}, reflection::TypeRegistry};
 
 use super::{header::{BlobLink, DatInfo, DescriptorLink}, KFCFile, KFCReadError, KFCWriteError, StaticMapBuilder};
 
 pub struct KFCWriter<F, T> {
     path: PathBuf,
     reference_file: F,
-    type_collection: T,
+    type_registry: T,
 
     descriptors: StaticMapBuilder<DescriptorGuid, DescriptorLink>,
     blobs: StaticMapBuilder<BlobGuid, BlobLink>,
@@ -26,13 +26,13 @@ pub struct KFCWriter<F, T> {
 impl<F, T> KFCWriter<F, T>
 where
     F: Borrow<KFCFile>,
-    T: Borrow<TypeCollection>,
+    T: Borrow<TypeRegistry>,
 {
 
     pub fn new<P: AsRef<Path>>(
         path: P,
         reference_file: F,
-        type_collection: T,
+        type_registry: T,
     ) -> Result<Self, KFCReadError> {
         let current_file = KFCFile::from_path(&path, true)?;
         let header_space = current_file.data_offset();
@@ -51,7 +51,7 @@ where
         Ok(Self {
             path: path.as_ref().into(),
             reference_file,
-            type_collection,
+            type_registry,
 
             descriptors,
             blobs,
@@ -72,8 +72,8 @@ where
         &self.path
     }
 
-    pub fn type_collection(&self) -> &TypeCollection {
-        self.type_collection.borrow()
+    pub fn type_registry(&self) -> &TypeRegistry {
+        self.type_registry.borrow()
     }
 
     pub fn file(&self) -> &KFCFile {
@@ -132,7 +132,7 @@ where
         let mut file = KFCFile::default();
 
         file.set_game_version(self.reference_file.borrow().game_version().to_string());
-        file.set_descriptors(self.descriptors.build(), self.type_collection.borrow());
+        file.set_descriptors(self.descriptors.build(), self.type_registry.borrow());
         file.set_blobs(self.blobs.build());
         file.set_dat_infos(self.reference_file.borrow().get_dat_infos().to_vec());
         file.set_data_location(0, size);

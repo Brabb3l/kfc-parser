@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use kfc::hash::{fnv, fnv_const};
-use kfc::reflection::TypeFlags;
-use kfc::{reflection::{TypeCollection, TypeInfo}, Hash32};
+use kfc::reflection::{LookupKey, TypeFlags, TypeMetadata};
+use kfc::{reflection::TypeRegistry, Hash32};
 
 pub const IMPACT_NODE: &str = "keen::impact_nodes::ImpactNode";
 pub const IMPACT_NODE_HASH: u32 = fnv_const(IMPACT_NODE);
@@ -60,14 +60,14 @@ const IMPACT_VALUE: &str = "impact_node_value";
 const IMPACT_MANDATORY: &str = "impact_mandatory_connection";
 const IMPACT_NODE_SHUTDOWN: &str = "impact_node_shutdown";
 
-pub trait TypeCollectionImpactExt {
-    fn get_impact_node_types(&self) -> HashMap<u32, &TypeInfo>;
+pub trait TypeRegistryImpactExt {
+    fn get_impact_node_types(&self) -> HashMap<u32, &TypeMetadata>;
     fn get_impact_nodes(&self) -> HashMap<u32, ImpactNode>;
 }
 
-impl TypeCollectionImpactExt for TypeCollection {
+impl TypeRegistryImpactExt for TypeRegistry {
 
-    fn get_impact_node_types(&self) -> HashMap<u32, &TypeInfo> {
+    fn get_impact_node_types(&self) -> HashMap<u32, &TypeMetadata> {
         let mut nodes = HashMap::new();
 
         for node in self.iter() {
@@ -103,8 +103,8 @@ impl TypeCollectionImpactExt for TypeCollection {
 }
 
 fn create_node<'a: 'b, 'b: 'c, 'c>(
-    type_collection: &'a TypeCollection,
-    node: &'a TypeInfo,
+    type_collection: &'a TypeRegistry,
+    node: &'a TypeMetadata,
     nodes: &'c mut HashMap<Hash32, ImpactNode<'b>>,
     shutdown_name: Option<&'a str>,
 ) -> &'c ImpactNode<'b> {
@@ -113,8 +113,7 @@ fn create_node<'a: 'b, 'b: 'c, 'c>(
     }
 
     if shutdown_name.is_none() {
-        if let Some(shutdown_name) = node.attributes.iter()
-            .find(|attr| attr.name == IMPACT_NODE_SHUTDOWN)
+        if let Some(shutdown_name) = node.attributes.get(IMPACT_NODE_SHUTDOWN)
             .map(|attr| attr.value.as_str())
         {
             create_node(type_collection, node, nodes, Some(shutdown_name));
@@ -124,7 +123,7 @@ fn create_node<'a: 'b, 'b: 'c, 'c>(
     let mut super_types = Vec::new();
     let mut inner = &node.inner_type;
     while let Some(ty) = inner {
-        let info = type_collection.get_type(*ty)
+        let info = type_collection.get(*ty)
             .expect("invalid inner type");
 
         super_types.push(ImpactNodeTypeRef {
@@ -132,7 +131,7 @@ fn create_node<'a: 'b, 'b: 'c, 'c>(
             hash: info.qualified_hash,
         });
 
-        inner = if let Some(ty) = type_collection.get_type(*ty) {
+        inner = if let Some(ty) = type_collection.get(*ty) {
             &ty.inner_type
         } else {
                 break;
@@ -146,7 +145,7 @@ fn create_node<'a: 'b, 'b: 'c, 'c>(
 
     if let Some(super_type) = super_types.first()
         .map(|ty| ty.hash)
-        .and_then(|hash| type_collection.get_type_by_qualified_hash(hash))
+        .and_then(|hash| type_collection.get_by_hash(LookupKey::Qualified(hash)))
     {
         let super_node = create_node(type_collection, super_type, nodes, None);
 
@@ -176,11 +175,10 @@ fn create_node<'a: 'b, 'b: 'c, 'c>(
     }
 
     inputs.extend(
-        node.struct_fields.iter()
-            .filter(|field| field.attributes.iter()
-                .any(|attr| attr.name == IMPACT_INPUT))
+        node.struct_fields.values()
+            .filter(|field| field.attributes.contains_key(IMPACT_INPUT))
             .map(|field| {
-                let ty = type_collection.get_type(field.r#type)
+                let ty = type_collection.get(field.r#type)
                     .expect("invalid type");
 
                 ImpactNodePin {
@@ -189,21 +187,19 @@ fn create_node<'a: 'b, 'b: 'c, 'c>(
                         name: &ty.qualified_name,
                         hash: ty.qualified_hash,
                     },
-                    is_mandatory: field.attributes.iter()
-                        .any(|attr| attr.name == IMPACT_MANDATORY)
+                    is_mandatory: field.attributes.contains_key(IMPACT_MANDATORY)
                 }
             })
     );
 
     outputs.extend(
-        node.struct_fields.iter()
+        node.struct_fields.values()
             .filter(|field|
-                field.attributes.iter()
-                    .any(|attr| attr.name == IMPACT_OUTPUT) ||
-                type_collection.get_type(field.r#type).unwrap().qualified_hash == IMPACT_NODE_EXECUTION_BRANCH_HASH
+                field.attributes.contains_key(IMPACT_OUTPUT) ||
+                type_collection.get(field.r#type).unwrap().qualified_hash == IMPACT_NODE_EXECUTION_BRANCH_HASH
             )
             .map(|field| {
-                let ty = type_collection.get_type(field.r#type)
+                let ty = type_collection.get(field.r#type)
                     .expect("invalid type");
 
                 ImpactNodePin {
@@ -212,18 +208,16 @@ fn create_node<'a: 'b, 'b: 'c, 'c>(
                         name: &ty.qualified_name,
                         hash: ty.qualified_hash,
                     },
-                    is_mandatory: field.attributes.iter()
-                        .any(|attr| attr.name == IMPACT_MANDATORY)
+                    is_mandatory: field.attributes.contains_key(IMPACT_MANDATORY)
                 }
             })
     );
 
     configs.extend(
-        node.struct_fields.iter()
-            .filter(|field| field.attributes.iter()
-                .any(|attr| attr.name == IMPACT_CONFIG))
+        node.struct_fields.values()
+            .filter(|field| field.attributes.contains_key(IMPACT_CONFIG))
             .map(|field| {
-                let ty = type_collection.get_type(field.r#type)
+                let ty = type_collection.get(field.r#type)
                     .expect("invalid type");
 
                 ImpactNodePin {
@@ -238,11 +232,10 @@ fn create_node<'a: 'b, 'b: 'c, 'c>(
     );
 
     values.extend(
-        node.struct_fields.iter()
-            .filter(|field| field.attributes.iter()
-                .any(|attr| attr.name == IMPACT_VALUE))
+        node.struct_fields.values()
+            .filter(|field| field.attributes.contains_key(IMPACT_VALUE))
             .map(|field| {
-                let ty = type_collection.get_type(field.r#type)
+                let ty = type_collection.get(field.r#type)
                     .expect("invalid type");
 
                 ImpactNodePin {

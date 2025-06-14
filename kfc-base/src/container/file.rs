@@ -1,6 +1,6 @@
 use std::{collections::{HashMap, HashSet}, fs::File, io::{BufReader, Read, Seek, SeekFrom, Write}, path::Path};
 
-use crate::{guid::{BlobGuid, DescriptorGuid}, io::{ReadExt, WriteExt, WriteSeekExt}, reflection::TypeCollection, Hash32};
+use crate::{guid::{BlobGuid, DescriptorGuid}, io::{ReadExt, WriteExt, WriteSeekExt}, reflection::{LookupKey, TypeRegistry}, Hash32};
 
 use super::{header::*, KFCReadError, KFCWriteError, StaticMap, StaticMapBucket};
 
@@ -84,6 +84,10 @@ impl KFCFile {
         self.descriptors.contains_key(guid)
     }
 
+    pub fn get_descriptor_types(&self) -> &[Hash32] {
+        self.groups.keys()
+    }
+
     pub fn get_descriptor_guids_by_type_hash(&self, type_hash: Hash32) -> impl Iterator<Item = &DescriptorGuid> {
         self.groups.get(&type_hash)
             .map(|info| {
@@ -137,10 +141,10 @@ impl KFCFile {
     pub fn set_descriptors(
         &mut self,
         descriptors: StaticMap<DescriptorGuid, DescriptorLink>,
-        type_collection: &TypeCollection,
+        type_registry: &TypeRegistry,
     ) {
         self.descriptors = descriptors;
-        self.rebuild_groups(type_collection);
+        self.rebuild_groups(type_registry);
     }
 
     pub fn set_blobs(&mut self, blobs: StaticMap<BlobGuid, BlobLink>) {
@@ -161,7 +165,7 @@ impl KFCFile {
         self.descriptor_locations[0].count = self.descriptors.len();
     }
 
-    fn rebuild_groups(&mut self, type_collection: &TypeCollection) {
+    fn rebuild_groups(&mut self, type_registry: &TypeRegistry) {
         let mut type_hashes = self.descriptors.keys()
             .iter()
             .map(|guid| guid.type_hash)
@@ -169,7 +173,7 @@ impl KFCFile {
             .into_iter()
             .map(|hash| (hash, GroupInfo {
                 // TODO: Remove unwrap
-                internal_hash: type_collection.get_type_by_qualified_hash(hash).unwrap().internal_hash,
+                internal_hash: type_registry.get_by_hash(LookupKey::Qualified(hash)).unwrap().internal_hash,
                 ..Default::default()
             }))
             .collect::<Vec<_>>();

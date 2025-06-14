@@ -9,4 +9,4 @@ kfc = { package = "kfc-base", path = "../kfc-base" }
 
 thiserror.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+indexmap.workspace = true

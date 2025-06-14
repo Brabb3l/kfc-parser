@@ -1,18 +1,20 @@
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 
-use crate::Hash32;
+use crate::{reflection::TypeIndex, Hash32};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TypeInfo {
+pub struct TypeMetadata {
+    pub index: TypeIndex,
     pub name: String,
     pub impact_name: String,
     pub qualified_name: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub namespace: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub inner_type: Option<usize>,
+    pub inner_type: Option<TypeIndex>,
     pub size: u32,
     pub alignment: u16,
     pub element_alignment: u16,
@@ -23,24 +25,24 @@ pub struct TypeInfo {
     pub impact_hash: Hash32, // pre-computed
     pub qualified_hash: Hash32,
     pub internal_hash: Hash32,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub struct_fields: Vec<StructFieldInfo>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub enum_fields: Vec<EnumFieldInfo>,
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub struct_fields: IndexMap<String, StructFieldMetadata>,
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub enum_fields: IndexMap<String, EnumFieldMetadata>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_value: Option<Vec<u8>>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub attributes: Vec<Attribute>,
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub attributes: IndexMap<String, Attribute>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct StructFieldInfo {
+pub struct StructFieldMetadata {
     pub name: String,
-    pub r#type: usize,
+    pub r#type: TypeIndex,
     pub data_offset: u64,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub attributes: Vec<Attribute>,
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub attributes: IndexMap<String, Attribute>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,14 +52,14 @@ pub struct Attribute {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub namespace: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub r#type: Option<usize>,
+    pub r#type: Option<TypeIndex>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub value: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EnumFieldInfo {
+pub struct EnumFieldMetadata {
     pub name: String,
     pub value: u64,
 }
@@ -75,8 +77,6 @@ bitflags::bitflags! {
         const IS_GPU_STORAGE = 0x40;
         const IS_GPU_CONSTANT = 0x80;
     }
-
-    // TODO: Serialize, Deserialize to array instead of pipe separated string
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

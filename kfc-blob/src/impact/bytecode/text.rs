@@ -3,7 +3,7 @@ use std::io::Write;
 
 use kfc::Hash32;
 
-use crate::impact::TypeCollectionImpactExt;
+use crate::impact::TypeRegistryImpactExt;
 
 use super::parser::Parser;
 use super::{ImpactNode, ImpactProgram, ImpactAssembler, ImpactOps, ImpactProgramData, ParseError};

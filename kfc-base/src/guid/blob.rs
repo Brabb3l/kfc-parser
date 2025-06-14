@@ -4,7 +4,8 @@ use std::str::FromStr;
 
 use serde::Deserialize;
 
-use crate::{container::StaticHash, hash::{crc64, fnv}, Hash32, Hash64};
+use crate::hash::compute_blob_guid;
+use crate::{container::StaticHash, hash::fnv, Hash32};
 
 use super::DescriptorGuid;
 
@@ -25,11 +26,23 @@ impl BlobGuid {
         }
     }
 
+    pub fn from_data(data: &[u8]) -> Self {
+        let data_size = data.len();
+        let guid = compute_blob_guid(data, 0);
+
+        Self::from_parts(
+            data_size as u32,
+            u32::from_le_bytes(guid[4..8].try_into().unwrap()),
+            u32::from_le_bytes(guid[8..12].try_into().unwrap()),
+            u32::from_le_bytes(guid[12..16].try_into().unwrap()),
+        )
+    }
+
     pub fn from_parts(
+        size: u32,
         hash0: u32,
         hash1: u32,
         hash2: u32,
-        size: u32,
     ) -> Self {
         let mut data = [0; 16];
 
@@ -45,10 +58,6 @@ impl BlobGuid {
 
     pub fn hash32(&self) -> Hash32 {
         fnv(self.data)
-    }
-
-    pub fn hash64(&self) -> Hash64 {
-        crc64(self.to_string())
     }
 
     pub fn size(&self) -> u32 {

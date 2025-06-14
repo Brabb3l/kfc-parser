@@ -1,0 +1,1003 @@
+use std::borrow::Borrow;
+
+use kfc::{guid::BlobGuid, reflection::{LookupKey, PrimitiveType, TypeMetadata, TypeRegistry}};
+
+mod error;
+mod util;
+mod type_handle;
+
+pub use error::*;
+use util::*;
+use type_handle::*;
+
+#[derive(Debug, Clone)]
+pub enum MappedValue<D, T> {
+    None,
+    Bool(bool),
+    UInt8(u8),
+    SInt8(i8),
+    UInt16(u16),
+    SInt16(i16),
+    UInt32(u32),
+    SInt32(i32),
+    UInt64(u64),
+    SInt64(i64),
+    Float32(f32),
+    Float64(f64),
+    Enum(MappedEnum<T>),
+    Bitmask8(MappedBitmask8<T>),
+    Bitmask16(MappedBitmask16<T>),
+    Bitmask32(MappedBitmask32<T>),
+    Bitmask64(MappedBitmask64<T>),
+    Struct(MappedStruct<D, T>),
+    Array(MappedArray<D, T>),
+    String(MappedString<D>),
+    Optional(Option<Box<MappedValue<D, T>>>),
+    Variant(Option<MappedVariant<D, T>>),
+    Reference(MappedReference<T>),
+    Guid(BlobGuid),
+}
+
+impl<D, T> MappedValue<D, T>
+where
+    D: Borrow<[u8]> + Clone,
+    T: Borrow<TypeRegistry> + Clone,
+{
+    #[inline]
+    pub fn is_none(&self) -> bool {
+        matches!(self, MappedValue::None)
+    }
+
+    #[inline]
+    pub fn as_none(&self) -> Option<()> {
+        if let MappedValue::None = self {
+            Some(())
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_bool(&self) -> bool {
+        matches!(self, MappedValue::Bool(_))
+    }
+
+    #[inline]
+    pub fn as_bool(&self) -> Option<bool> {
+        if let MappedValue::Bool(value) = self {
+            Some(*value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_u8(&self) -> bool {
+        matches!(self, MappedValue::UInt8(_))
+    }
+
+    #[inline]
+    pub fn as_u8(&self) -> Option<u8> {
+        if let MappedValue::UInt8(value) = self {
+            Some(*value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_i8(&self) -> bool {
+        matches!(self, MappedValue::SInt8(_))
+    }
+
+    #[inline]
+    pub fn as_i8(&self) -> Option<i8> {
+        if let MappedValue::SInt8(value) = self {
+            Some(*value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_u16(&self) -> bool {
+        matches!(self, MappedValue::UInt16(_))
+    }
+
+    #[inline]
+    pub fn as_u16(&self) -> Option<u16> {
+        if let MappedValue::UInt16(value) = self {
+            Some(*value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_i16(&self) -> bool {
+        matches!(self, MappedValue::SInt16(_))
+    }
+
+    #[inline]
+    pub fn as_i16(&self) -> Option<i16> {
+        if let MappedValue::SInt16(value) = self {
+            Some(*value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_u32(&self) -> bool {
+        matches!(self, MappedValue::UInt32(_))
+    }
+
+    #[inline]
+    pub fn as_u32(&self) -> Option<u32> {
+        if let MappedValue::UInt32(value) = self {
+            Some(*value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_i32(&self) -> bool {
+        matches!(self, MappedValue::SInt32(_))
+    }
+
+    #[inline]
+    pub fn as_i32(&self) -> Option<i32> {
+        if let MappedValue::SInt32(value) = self {
+            Some(*value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_u64(&self) -> bool {
+        matches!(self, MappedValue::UInt64(_))
+    }
+
+    #[inline]
+    pub fn as_u64(&self) -> Option<u64> {
+        if let MappedValue::UInt64(value) = self {
+            Some(*value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_i64(&self) -> bool {
+        matches!(self, MappedValue::SInt64(_))
+    }
+
+    #[inline]
+    pub fn as_i64(&self) -> Option<i64> {
+        if let MappedValue::SInt64(value) = self {
+            Some(*value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_f32(&self) -> bool {
+        matches!(self, MappedValue::Float32(_))
+    }
+
+    #[inline]
+    pub fn as_f32(&self) -> Option<f32> {
+        if let MappedValue::Float32(value) = self {
+            Some(*value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_f64(&self) -> bool {
+        matches!(self, MappedValue::Float64(_))
+    }
+
+    #[inline]
+    pub fn as_f64(&self) -> Option<f64> {
+        if let MappedValue::Float64(value) = self {
+            Some(*value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_enum(&self) -> bool {
+        matches!(self, MappedValue::Enum(_))
+    }
+
+    #[inline]
+    pub fn as_enum(&self) -> Option<&MappedEnum<T>> {
+        if let MappedValue::Enum(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_bitmask8(&self) -> bool {
+        matches!(self, MappedValue::Bitmask8(_))
+    }
+
+    #[inline]
+    pub fn as_bitmask8(&self) -> Option<&MappedBitmask8<T>> {
+        if let MappedValue::Bitmask8(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_bitmask16(&self) -> bool {
+        matches!(self, MappedValue::Bitmask16(_))
+    }
+
+    #[inline]
+    pub fn as_bitmask16(&self) -> Option<&MappedBitmask16<T>> {
+        if let MappedValue::Bitmask16(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_bitmask32(&self) -> bool {
+        matches!(self, MappedValue::Bitmask32(_))
+    }
+
+    #[inline]
+    pub fn as_bitmask32(&self) -> Option<&MappedBitmask32<T>> {
+        if let MappedValue::Bitmask32(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_bitmask64(&self) -> bool {
+        matches!(self, MappedValue::Bitmask64(_))
+    }
+
+    #[inline]
+    pub fn as_bitmask64(&self) -> Option<&MappedBitmask64<T>> {
+        if let MappedValue::Bitmask64(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_struct(&self) -> bool {
+        matches!(self, MappedValue::Struct(_))
+    }
+
+    #[inline]
+    pub fn as_struct(&self) -> Option<&MappedStruct<D, T>> {
+        if let MappedValue::Struct(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_array(&self) -> bool {
+        matches!(self, MappedValue::Array(_))
+    }
+
+    #[inline]
+    pub fn as_array(&self) -> Option<&MappedArray<D, T>> {
+        if let MappedValue::Array(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_string(&self) -> bool {
+        matches!(self, MappedValue::String(_))
+    }
+
+    #[inline]
+    pub fn as_string(&self) -> Option<&MappedString<D>> {
+        if let MappedValue::String(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_optional(&self) -> bool {
+        matches!(self, MappedValue::Optional(_))
+    }
+
+    #[inline]
+    pub fn as_optional(&self) -> Option<&Option<Box<MappedValue<D, T>>>> {
+        if let MappedValue::Optional(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_variant(&self) -> bool {
+        matches!(self, MappedValue::Variant(_))
+    }
+
+    #[inline]
+    pub fn as_variant(&self) -> Option<&MappedVariant<D, T>> {
+        if let MappedValue::Variant(value) = self {
+            value.as_ref()
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_reference(&self) -> bool {
+        matches!(self, MappedValue::Reference(_))
+    }
+
+    #[inline]
+    pub fn as_reference(&self) -> Option<&MappedReference<T>> {
+        if let MappedValue::Reference(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn is_guid(&self) -> bool {
+        matches!(self, MappedValue::Guid(_))
+    }
+
+    #[inline]
+    pub fn as_guid(&self) -> Option<&BlobGuid> {
+        if let MappedValue::Guid(value) = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+}
+
+impl<D, T> MappedValue<D, T>
+where
+    D: Borrow<[u8]> + Clone,
+    T: Borrow<TypeRegistry> + Clone,
+{
+    #[inline]
+    pub fn from_bytes(
+        type_registry: &T,
+        r#type: &TypeMetadata,
+        data: &D,
+    ) -> Result<Self, MappingError> {
+        let r#type = TypeHandle::try_new(type_registry.clone(), r#type.index)
+            .ok_or(MappingError::InvalidTypeIndex(r#type.index))?;
+
+        Self::from_impl(&r#type, data, 0)
+    }
+
+    fn from_impl(
+        r#type: &TypeHandle<T>,
+        data: &D,
+        offset: usize,
+    ) -> Result<Self, MappingError> {
+        let result = match r#type.primitive_type {
+            PrimitiveType::None => MappedValue::None,
+            PrimitiveType::Bool => get_bool(data.borrow(), offset)?.into(),
+            PrimitiveType::UInt8 => get_u8(data.borrow(), offset)?.into(),
+            PrimitiveType::SInt8 => get_i8(data.borrow(), offset)?.into(),
+            PrimitiveType::UInt16 => get_u16(data.borrow(), offset)?.into(),
+            PrimitiveType::SInt16 => get_i16(data.borrow(), offset)?.into(),
+            PrimitiveType::UInt32 => get_u32(data.borrow(), offset)?.into(),
+            PrimitiveType::SInt32 => get_i32(data.borrow(), offset)?.into(),
+            PrimitiveType::UInt64 => get_u64(data.borrow(), offset)?.into(),
+            PrimitiveType::SInt64 => get_i64(data.borrow(), offset)?.into(),
+            PrimitiveType::Float32 => get_f32(data.borrow(), offset)?.into(),
+            PrimitiveType::Float64 => get_f64(data.borrow(), offset)?.into(),
+            PrimitiveType::Enum => {
+                let enum_value_type = get_inner_type(r#type)?;
+                let enum_value = match enum_value_type.primitive_type {
+                    PrimitiveType::UInt8 => get_u8(data.borrow(), offset)? as u64,
+                    PrimitiveType::SInt8 => get_i8(data.borrow(), offset)? as u64,
+                    PrimitiveType::UInt16 => get_u16(data.borrow(), offset)? as u64,
+                    PrimitiveType::SInt16 => get_i16(data.borrow(), offset)? as u64,
+                    PrimitiveType::UInt32 => get_u32(data.borrow(), offset)? as u64,
+                    PrimitiveType::SInt32 => get_i32(data.borrow(), offset)? as u64,
+                    PrimitiveType::UInt64 => get_u64(data.borrow(), offset)?,
+                    PrimitiveType::SInt64 => get_i64(data.borrow(), offset)? as u64,
+                    _ => panic!("Invalid enum value type: {:?}", enum_value_type.primitive_type),
+                };
+
+                MappedEnum::new(r#type.clone(), enum_value).into()
+            },
+            PrimitiveType::Bitmask8 => MappedBitmask8::new(
+                r#type.clone(),
+                get_u8(data.borrow(), offset)?
+            ).into(),
+            PrimitiveType::Bitmask16 => MappedBitmask16::new(
+                r#type.clone(),
+                get_u16(data.borrow(), offset)?
+            ).into(),
+            PrimitiveType::Bitmask32 => MappedBitmask32::new(
+                r#type.clone(),
+                get_u32(data.borrow(), offset)?
+            ).into(),
+            PrimitiveType::Bitmask64 => MappedBitmask64::new(
+                r#type.clone(),
+                get_u64(data.borrow(), offset)?
+            ).into(),
+            PrimitiveType::Typedef => {
+                let inner_type = get_inner_type(r#type)?;
+                Self::from_impl(&inner_type, data, offset)?
+            }
+            PrimitiveType::Struct => MappedStruct::new(
+                r#type.clone(),
+                data.clone(),
+                offset
+            ).into(),
+            PrimitiveType::StaticArray => MappedArray::new(
+                r#type.clone(),
+                data.clone(),
+                offset,
+                r#type.field_count as usize
+            )?.into(),
+            PrimitiveType::DsArray => return Err(MappingError::UnsupportedOperation("DsArrays are not supported yet")),
+            PrimitiveType::DsString => return Err(MappingError::UnsupportedOperation("DsStrings are not supported yet")),
+            PrimitiveType::DsOptional => return Err(MappingError::UnsupportedOperation("DsOptionals are not supported yet")),
+            PrimitiveType::DsVariant => return Err(MappingError::UnsupportedOperation("DsVariants are not supported yet")),
+            PrimitiveType::BlobArray => {
+                let blob_offset = get_u32(data.borrow(), offset)? as usize;
+                let count = get_u32(data.borrow(), offset + 4)? as usize;
+
+                MappedArray::new(
+                    r#type.clone(),
+                    data.clone(),
+                    offset + blob_offset,
+                    count
+                )?.into()
+            }
+            PrimitiveType::BlobString => {
+                let blob_offset = get_u32(data.borrow(), offset)? as usize;
+
+                if blob_offset == 0 {
+                    return Ok(MappedString::new(
+                        data.clone(),
+                        0,
+                        0
+                    )?.into());
+                }
+
+                let blob_size = get_u32(data.borrow(), offset + 4)? as usize;
+
+                MappedString::new(
+                    data.clone(),
+                    offset + blob_offset,
+                    blob_size,
+                )?.into()
+            }
+            PrimitiveType::BlobOptional => {
+                let inner_type = match get_inner_type_opt(r#type) {
+                    Some(t) => t,
+                    None => return Ok(MappedValue::Optional(None)),
+                };
+                let blob_offset = get_u32(data.borrow(), offset)? as usize;
+
+                if blob_offset == 0 {
+                    return Ok(MappedValue::Optional(None));
+                }
+
+                Some(Box::new(Self::from_impl(
+                    &inner_type,
+                    data,
+                    offset + blob_offset
+                )?)).into()
+            }
+            PrimitiveType::BlobVariant => {
+                let variant_hash = get_u32(data.borrow(), offset)?;
+                let blob_offset = get_u32(data.borrow(), offset + 4)? as usize;
+                // let size = get_u32(data, 8)? as usize;
+
+                if blob_offset == 0 {
+                    return Ok(MappedValue::Variant(None));
+                }
+
+                let variant_type = r#type.type_registry().borrow()
+                    .get_by_hash(LookupKey::Qualified(variant_hash))
+                    .map(|t| t.index)
+                    .ok_or(MappingError::InvalidTypeHash(variant_hash))?;
+                let variant_type = TypeHandle::new(
+                    r#type.type_registry().clone(),
+                    variant_type
+                );
+
+                Some(MappedVariant::new(
+                    r#type.clone(),
+                    MappedStruct::new(
+                        variant_type,
+                        data.clone(),
+                        offset + blob_offset + 4
+                    ),
+                )).into()
+            }
+            PrimitiveType::ObjectReference => MappedReference::new(
+                r#type.clone(),
+                BlobGuid::from_bytes(
+                    get_bytes(data.borrow(), offset, 16)?.try_into().unwrap()
+                ),
+            ).into(),
+            PrimitiveType::Guid => BlobGuid::from_bytes(
+                get_bytes(data.borrow(), offset, 16)?.try_into().unwrap()
+            ).into(),
+        };
+
+        Ok(result)
+    }
+
+}
+
+#[derive(Debug, Clone)]
+pub struct MappedString<D> {
+    data: D,
+    offset: usize,
+    length: usize,
+}
+
+impl<D> MappedString<D>
+where
+    D: Borrow<[u8]> + Clone,
+{
+    #[inline]
+    fn new(data: D, offset: usize, length: usize) -> Result<Self, MappingError> {
+        if offset + length > data.borrow().len() {
+            return Err(MappingError::UnexpectedEndOfData);
+        }
+
+        Ok(Self { data, offset, length })
+    }
+
+    #[inline]
+    pub fn as_str(&self) -> Result<&str, MappingError> {
+        if self.offset == 0 {
+            return Ok("");
+        }
+
+        let bytes = get_bytes(self.data.borrow(), self.offset, self.length)?;
+        std::str::from_utf8(bytes).map_err(MappingError::Utf8)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MappedEnum<T> {
+    r#type: TypeHandle<T>,
+    value: u64,
+}
+
+impl<T> MappedEnum<T>
+where
+    T: Borrow<TypeRegistry> + Clone,
+{
+    #[inline]
+    fn new(r#type: TypeHandle<T>, value: u64) -> Self {
+        Self { r#type, value }
+    }
+
+    #[inline]
+    pub fn r#type(&self) -> &TypeHandle<T> {
+        &self.r#type
+    }
+
+    #[inline]
+    pub fn value(&self) -> u64 {
+        self.value
+    }
+
+    #[inline]
+    pub fn name(&self) -> Option<&str> {
+        self.r#type.enum_fields.values()
+            .find(|f| f.value == self.value)
+            .map(|f| f.name.as_str())
+    }
+}
+
+pub struct MappedBit<'a> {
+    name: Option<&'a str>,
+    value: u64,
+}
+
+impl<'a> MappedBit<'a> {
+    #[inline]
+    pub fn new(
+        name: Option<&'a str>,
+        value: u64,
+    ) -> Self {
+        Self { name, value }
+    }
+
+    #[inline]
+    pub fn name(&self) -> Option<&str> {
+        self.name
+    }
+
+    #[inline]
+    pub fn value(&self) -> u64 {
+        self.value
+    }
+}
+
+macro_rules! bitmask {
+    ($name:ident, $type:ty) => {
+        #[derive(Debug, Clone)]
+        pub struct $name<T> {
+            r#type: TypeHandle<T>,
+            value: $type,
+        }
+
+        impl<T> $name<T>
+        where
+            T: Borrow<TypeRegistry> + Clone,
+        {
+            #[inline]
+            fn new(r#type: TypeHandle<T>, value: $type) -> Self {
+                Self { r#type, value }
+            }
+
+            #[inline]
+            pub fn r#type(&self) -> &TypeHandle<T> {
+                &self.r#type
+            }
+
+            #[inline]
+            pub fn value(&self) -> $type {
+                self.value
+            }
+
+            pub fn bits(&self) -> Vec<MappedBit> {
+                let mut bits = Vec::with_capacity(self.value.count_ones() as usize);
+                let mut checked_bits = 0;
+
+                for enum_field in self.r#type.enum_fields.values() {
+                    let enum_value = enum_field.value;
+                    let enum_name = &enum_field.name;
+
+                    checked_bits |= 1 << enum_value;
+
+                    if self.value & (1 << enum_value) != 0 {
+                        bits.push(MappedBit::new(Some(enum_name), enum_value as u64));
+                    }
+                }
+
+                if self.value.count_ones() != bits.len() as u32 {
+                    for i in 0..<$type>::BITS {
+                        if checked_bits & (1 << i) == 0 && self.value & (1 << i) != 0 {
+                            bits.push(MappedBit::new(None, i as u64));
+                        }
+                    }
+                }
+
+                bits
+            }
+        }
+    };
+}
+
+bitmask!(MappedBitmask8, u8);
+bitmask!(MappedBitmask16, u16);
+bitmask!(MappedBitmask32, u32);
+bitmask!(MappedBitmask64, u64);
+
+#[derive(Debug, Clone)]
+pub struct MappedVariant<D, T> {
+    base_type: TypeHandle<T>,
+    value: MappedStruct<D, T>,
+}
+
+impl<D, T> MappedVariant<D, T>
+where
+    D: Borrow<[u8]> + Clone,
+    T: Borrow<TypeRegistry> + Clone,
+{
+    #[inline]
+    fn new(base_type: TypeHandle<T>, value: MappedStruct<D, T>) -> Self {
+        Self { base_type, value }
+    }
+
+    #[inline]
+    pub fn base_type(&self) -> &TypeHandle<T> {
+        &self.base_type
+    }
+
+    #[inline]
+    pub fn variant_type(&self) -> &TypeHandle<T> {
+        &self.value.r#type
+    }
+
+    #[inline]
+    pub fn value(&self) -> &MappedStruct<D, T> {
+        &self.value
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MappedStruct<D, T> {
+    r#type: TypeHandle<T>,
+    data: D,
+    offset: usize,
+}
+
+impl<D, T> MappedStruct<D, T>
+where
+    D: Borrow<[u8]> + Clone,
+    T: Borrow<TypeRegistry> + Clone,
+{
+    #[inline]
+    fn new(
+        r#type: TypeHandle<T>,
+        data: D,
+        offset: usize,
+    ) -> Self {
+        Self {
+            r#type,
+            data,
+            offset,
+        }
+    }
+
+    #[inline]
+    pub fn r#type(&self) -> &TypeHandle<T> {
+        &self.r#type
+    }
+
+    #[inline]
+    pub fn data(&self) -> &D {
+        &self.data
+    }
+
+    pub fn get(
+        &self,
+        field_name: &str
+    ) -> Result<Option<MappedValue<D, T>>, MappingError> {
+        let mut r#type = self.r#type.clone();
+        let mut field;
+
+        loop {
+            field = r#type.struct_fields.get(field_name);
+
+            if field.is_some() {
+                break;
+            }
+
+            match get_inner_type_opt(&r#type) {
+                Some(parent_type) => r#type = parent_type,
+                None => return Ok(None),
+            }
+        }
+
+        // SAFETY: The loop above guarantees that `field` is Some
+        let field = field.unwrap();
+        let type_registry = self.r#type.type_registry().clone();
+
+        let field_type = match TypeHandle::try_new(type_registry, field.r#type) {
+            Some(t) => t,
+            None => return Err(MappingError::InvalidTypeIndex(field.r#type)),
+        };
+        let field_offset = field.data_offset as usize;
+        let field_value = MappedValue::from_impl(
+            &field_type,
+            &self.data,
+            self.offset + field_offset
+        )?;
+
+        Ok(Some(field_value))
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = Result<(&str, MappedValue<D, T>), MappingError>> {
+        self.r#type.iter_fields()
+            .map(|field| {
+                let type_registry = self.r#type.type_registry().clone();
+                let field_type = TypeHandle::try_new(type_registry, field.r#type)
+                    .ok_or(MappingError::InvalidTypeIndex(field.r#type))?;
+                let field_offset = field.data_offset as usize;
+                let field_value = MappedValue::from_impl(
+                    &field_type,
+                    &self.data,
+                    self.offset + field_offset
+                )?;
+
+                Ok((field.name.as_str(), field_value))
+            })
+    }
+
+    #[inline]
+    pub fn iter_keys(&self) -> impl Iterator<Item = &str> {
+        self.r#type.iter_fields().map(|field| field.name.as_str())
+    }
+
+    #[inline]
+    pub fn len(&self) -> Result<usize, MappingError> {
+        let mut r#type = self.r#type.clone();
+        let mut total = r#type.field_count;
+
+        while let Some(parent_type) = get_inner_type_opt(&r#type) {
+            total += parent_type.field_count;
+            r#type = parent_type;
+        }
+
+        Ok(total as usize)
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> Result<bool, MappingError> {
+        Ok(self.len()? == 0)
+    }
+
+}
+
+#[derive(Debug, Clone)]
+pub struct MappedArray<D, T> {
+    r#type: TypeHandle<T>,
+    element_type: TypeHandle<T>,
+    data: D,
+    offset: usize,
+    length: usize,
+}
+
+impl<D, T> MappedArray<D, T>
+where
+    D: Borrow<[u8]> + Clone,
+    T: Borrow<TypeRegistry> + Clone,
+{
+    #[inline]
+    fn new(
+        r#type: TypeHandle<T>,
+        data: D,
+        offset: usize,
+        length: usize,
+    ) -> Result<Self, MappingError> {
+        let element_type = get_inner_type(&r#type)?;
+
+        Ok(Self {
+            r#type,
+            element_type,
+            data,
+            offset,
+            length,
+        })
+    }
+
+    #[inline]
+    pub fn r#type(&self) -> &TypeHandle<T> {
+        &self.r#type
+    }
+
+    #[inline]
+    pub fn element_type(&self) -> &TypeHandle<T> {
+        &self.element_type
+    }
+
+    #[inline]
+    pub fn data(&self) -> &D {
+        &self.data
+    }
+
+    #[inline]
+    pub fn get(
+        &self,
+        index: usize
+    ) -> Result<Option<MappedValue<D, T>>, MappingError> {
+        if index >= self.length {
+            return Ok(None);
+        }
+
+        let element_size = self.element_type.size as usize;
+        let element_offset = index * element_size;
+
+        Ok(Some(MappedValue::from_impl(
+            &self.element_type,
+            &self.data,
+            self.offset + element_offset
+        )?))
+    }
+
+    #[inline]
+    pub fn iter(
+        &self
+    ) -> impl Iterator<Item = Result<MappedValue<D, T>, MappingError>> + '_ {
+        (0..self.length).filter_map(move |index| self.get(index).transpose())
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.length
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.length == 0
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MappedReference<T> {
+    r#type: TypeHandle<T>,
+    guid: BlobGuid,
+}
+
+impl<T> MappedReference<T>
+where
+    T: Borrow<TypeRegistry> + Clone,
+{
+    #[inline]
+    fn new(r#type: TypeHandle<T>, guid: BlobGuid) -> Self {
+        Self { r#type, guid }
+    }
+
+    #[inline]
+    pub fn r#type(&self) -> &TypeHandle<T> {
+        &self.r#type
+    }
+
+    #[inline]
+    pub fn guid(&self) -> &BlobGuid {
+        &self.guid
+    }
+}
+
+macro_rules! impl_from_mapped_value {
+    ($type:ty, $variant:ident) => {
+        impl<D, T> From<$type> for MappedValue<D, T>
+        where
+            D: Borrow<[u8]> + Clone,
+            T: Borrow<TypeRegistry> + Clone,
+        {
+            #[inline]
+            fn from(value: $type) -> Self {
+                MappedValue::$variant(value)
+            }
+        }
+    };
+}
+
+impl_from_mapped_value!(bool, Bool);
+impl_from_mapped_value!(u8, UInt8);
+impl_from_mapped_value!(i8, SInt8);
+impl_from_mapped_value!(u16, UInt16);
+impl_from_mapped_value!(i16, SInt16);
+impl_from_mapped_value!(u32, UInt32);
+impl_from_mapped_value!(i32, SInt32);
+impl_from_mapped_value!(u64, UInt64);
+impl_from_mapped_value!(i64, SInt64);
+impl_from_mapped_value!(f32, Float32);
+impl_from_mapped_value!(f64, Float64);
+impl_from_mapped_value!(MappedEnum<T>, Enum);
+impl_from_mapped_value!(MappedBitmask8<T>, Bitmask8);
+impl_from_mapped_value!(MappedBitmask16<T>, Bitmask16);
+impl_from_mapped_value!(MappedBitmask32<T>, Bitmask32);
+impl_from_mapped_value!(MappedBitmask64<T>, Bitmask64);
+impl_from_mapped_value!(MappedStruct<D, T>, Struct);
+impl_from_mapped_value!(MappedArray<D, T>, Array);
+impl_from_mapped_value!(MappedString<D>, String);
+impl_from_mapped_value!(Option<Box<MappedValue<D, T>>>, Optional);
+impl_from_mapped_value!(Option<MappedVariant<D, T>>, Variant);
+impl_from_mapped_value!(MappedReference<T>, Reference);
+impl_from_mapped_value!(BlobGuid, Guid);

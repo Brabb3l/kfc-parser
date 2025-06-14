@@ -3,7 +3,7 @@ use std::path::Path;
 
 use crate::io::ReadExt;
 
-use super::PEParseError;
+use super::error::PEParseError;
 
 pub const DOS_SIGNATURE: u16 = 0x5A4D;
 pub const NT_SIGNATURE: u32 = 0x00004550;
@@ -27,7 +27,10 @@ pub struct PEFile {
 }
 
 impl PEFile {
-    pub fn load_from_file(path: impl AsRef<Path>) -> Result<Self, PEParseError> {
+
+    pub fn load_from_file<P: AsRef<Path>>(
+        path: P
+    ) -> Result<Self, PEParseError> {
         // load things in memory since we need to read through the file multiple times
         let data = std::fs::read(path)?;
         let mut reader = Cursor::new(&data);
@@ -74,7 +77,8 @@ impl PEFile {
             _ => return Err(PEParseError::UnsupportedPEType),
         };
 
-        reader.seek(SeekFrom::Start(opt_header_start + size_of_optional_header as u64))?; // skip optional header
+        let section_start = opt_header_start + size_of_optional_header as u64;
+        reader.seek(SeekFrom::Start(section_start))?; // skip optional header
 
         // section headers
         let mut sections = Vec::new();
@@ -202,20 +206,35 @@ impl PEFile {
 }
 
 pub trait ReadPEExt {
-    fn read_pointee<'a>(&mut self, file: &'a PEFile) -> std::io::Result<Cursor<&'a [u8]>>;
-    fn read_pointee_opt<'a>(&mut self, file: &'a PEFile) -> std::io::Result<Option<Cursor<&'a [u8]>>>;
+
+    fn read_pointee<'a>(
+        &mut self,
+        file: &'a PEFile
+    ) -> std::io::Result<Cursor<&'a [u8]>>;
+
+    fn read_pointee_opt<'a>(
+        &mut self,
+        file: &'a PEFile
+    ) -> std::io::Result<Option<Cursor<&'a [u8]>>>;
+
 }
 
 impl<R: Read + Seek> ReadPEExt for R {
 
-    fn read_pointee<'a>(&mut self, file: &'a PEFile) -> std::io::Result<Cursor<&'a [u8]>> {
+    fn read_pointee<'a>(
+        &mut self,
+        file: &'a PEFile
+    ) -> std::io::Result<Cursor<&'a [u8]>> {
         file.va_to_fo(self.read_u64()?)
             .and_then(|offset| file.data.get(offset as usize..))
             .map(Cursor::new)
             .ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Could not read pointee"))
     }
 
-    fn read_pointee_opt<'a>(&mut self, file: &'a PEFile) -> std::io::Result<Option<Cursor<&'a [u8]>>> {
+    fn read_pointee_opt<'a>(
+        &mut self,
+        file: &'a PEFile
+    ) -> std::io::Result<Option<Cursor<&'a [u8]>>> {
         let va = self.read_u64()?;
 
         if va == 0 {

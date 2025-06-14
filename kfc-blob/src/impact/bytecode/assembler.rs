@@ -1,19 +1,19 @@
 use std::collections::HashMap;
 
-use kfc::{reflection::TypeCollection, Hash32};
+use kfc::{reflection::TypeRegistry, Hash32};
 
-use crate::impact::TypeCollectionImpactExt;
+use crate::impact::TypeRegistryImpactExt;
 
 use super::{ImpactNode, ImpactCommand};
 
 #[derive(Debug)]
 pub struct ImpactAssembler<'a> {
-    pub(super) type_collection: &'a TypeCollection,
+    pub(super) type_collection: &'a TypeRegistry,
     pub(super) nodes: HashMap<Hash32, ImpactNode<'a>>,
 }
 
 impl<'a> ImpactAssembler<'a> {
-    pub fn new(type_collection: &'a TypeCollection) -> Self {
+    pub fn new(type_collection: &'a TypeRegistry) -> Self {
         let nodes = type_collection.get_impact_nodes();
 
         Self {

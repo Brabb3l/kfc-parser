@@ -8,5 +8,6 @@ authors.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 bitflags.workspace = true
+indexmap.workspace = true
 
-crc64fast = "1.1.0"
+aes = { version = "0.8.4", features = ["hazmat"] }

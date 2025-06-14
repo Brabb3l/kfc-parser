@@ -1,10 +1,11 @@
+use kfc_descriptor::value::{ConversionOptions, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use kfc::reflection::{TypeCollection, TypeInfo};
+use kfc::reflection::{LookupKey, TypeMetadata, TypeRegistry};
 
 use super::bytecode::{ImpactAssembler, ImpactOps};
-use super::{ImpactNode, ImpactProgram, TypeCollectionImpactExt};
+use super::{ImpactNode, ImpactProgram, TypeRegistryImpactExt};
 
 ///// WIP /////
 
@@ -19,7 +20,7 @@ pub struct ImpactNodeGraph {
 #[serde(rename_all = "camelCase")]
 pub struct ImpactNodeInfo {
     r#type: String,
-    configs: Vec<serde_json::Value>,
+    configs: Vec<Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -32,8 +33,8 @@ pub struct ImpactNodeEdge {
 }
 
 pub struct ImpactProgramDecompiler<'a, 'b> {
-    type_collection: &'a TypeCollection,
-    node_types: HashMap<u32, &'a TypeInfo>,
+    type_collection: &'a TypeRegistry,
+    node_types: HashMap<u32, &'a TypeMetadata>,
     node_infos: HashMap<u32, ImpactNode<'a>>,
     value_nodes: HashMap<u32, ImpactNode<'a>>,
     program: &'b ImpactProgram,
@@ -53,7 +54,7 @@ struct State {
 
 impl<'a, 'b> ImpactProgramDecompiler<'a, 'b> {
     pub fn new(
-        type_collection: &'a TypeCollection,
+        type_collection: &'a TypeRegistry,
         program: &'b ImpactProgram,
     ) -> Self {
         let node_types = type_collection.get_impact_node_types();
@@ -65,7 +66,7 @@ impl<'a, 'b> ImpactProgramDecompiler<'a, 'b> {
             .filter(|(_, node)| !node.outputs.is_empty())
             .map(|(_, node)| {
                 let output = node.outputs.first().unwrap();
-                let ty = type_collection.get_type_by_qualified_hash(output.r#type.hash)
+                let ty = type_collection.get_by_hash(LookupKey::Qualified(output.r#type.hash))
                     .expect("missing type info");
                 (ty.name_hash, node.clone())
             })
@@ -117,7 +118,7 @@ impl<'a, 'b> ImpactProgramDecompiler<'a, 'b> {
 
                 self.nodes.push(ImpactNodeInfo {
                     r#type: node.r#type.name.into(),
-                    configs: vec![serde_json::Value::Number(id.into())],
+                    configs: vec![Value::UInt(id.into())],
                 });
 
                 self.edges.push(ImpactNodeEdge {
@@ -434,7 +435,7 @@ impl<'a, 'b> ImpactProgramDecompiler<'a, 'b> {
                     if i < input_value_count {
                         // ignore
                     } else if i < input_value_count + config_count {
-                        configs.insert(0, serde_json::Value::Null);
+                        configs.insert(0, Value::None);
                     }
                 },
                 Some(ImpactOps::ECall(_)) => {
@@ -469,7 +470,7 @@ impl<'a, 'b> ImpactProgramDecompiler<'a, 'b> {
 
                 self.nodes.get_mut(node_index)
                     .unwrap()
-                    .configs.insert(0, serde_json::Value::Bool(false));
+                    .configs.insert(0, Value::Bool(false));
 
                 let if_node_index = self.decompile_section(state, &mut (*address as usize));
                 // let function = &self.get_function_type(index)
@@ -489,7 +490,7 @@ impl<'a, 'b> ImpactProgramDecompiler<'a, 'b> {
 
                 self.nodes.get_mut(node_index)
                     .unwrap()
-                    .configs.insert(0, serde_json::Value::Bool(true));
+                    .configs.insert(0, Value::Bool(true));
 
                 let if_node_index = self.decompile_section(state, &mut (*address as usize));
 
@@ -700,22 +701,23 @@ impl<'a, 'b> ImpactProgramDecompiler<'a, 'b> {
         &self,
         _state: &State,
         index: u32
-    ) -> serde_json::Value {
+    ) -> Value {
         let layout = &self.program.data_layout[index as usize & 0xFFFF];
-        let type_info = self.type_collection.get_type_by_impact_hash(layout.r#type.value)
+        let type_info = self.type_collection.get_by_hash(LookupKey::Impact(layout.r#type.value))
             .expect("missing type info");
 
         let start = layout.offset_in_bytes as usize;
         let end = start + layout.size as usize;
 
-        kfc_descriptor::json::deserialize(
+        Value::from_bytes_with_options(
             self.type_collection,
             type_info,
-            &self.program.data[start..end]
+            &self.program.data[start..end],
+            ConversionOptions::HUMAN_READABLE
         ).expect("failed to deserialize data")
     }
 
-    fn get_function_type(&self, index: u32) -> Option<&TypeInfo> {
+    fn get_function_type(&self, index: u32) -> Option<&TypeMetadata> {
         self.node_types.get(&index).copied()
     }
 

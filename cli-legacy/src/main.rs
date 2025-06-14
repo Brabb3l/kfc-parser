@@ -2,10 +2,11 @@ use clap::Parser;
 use colored::Colorize;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use kfc::container::{KFCFile, KFCReader, KFCWriter};
+use kfc::descriptor::value::Value;
 use kfc::guid::DescriptorGuid;
-use kfc::reflection::TypeCollection;
+use kfc::reflection::{LookupKey, TypeRegistry};
 use kfc::blob::impact::bytecode::{ImpactAssembler, ImpactProgramData};
-use kfc::blob::impact::{ImpactProgram, TypeCollectionImpactExt};
+use kfc::blob::impact::{ImpactProgram, TypeRegistryImpactExt};
 use thiserror::Error;
 use std::collections::HashSet;
 use std::env::current_exe;
@@ -138,7 +139,7 @@ fn unpack(
     }
 
     let kfc_file = get_file(game_dir, file_name, "kfc")?;
-    let type_collection = load_type_collection(Some(game_dir), file_name, true)?;
+    let type_registry = load_type_registry(Some(game_dir), file_name, true)?;
 
     let file = match KFCFile::from_path(&kfc_file, false) {
         Ok(dir) => dir,
@@ -183,7 +184,7 @@ fn unpack(
                 break;
             }
             Filter::ByType(type_name) => {
-                let type_hash = match type_collection.get_type_by_qualified_name(type_name) {
+                let type_hash = match type_registry.get_by_name(LookupKey::Qualified(type_name)) {
                     Some(t) => t.qualified_hash,
                     None => {
                         fatal!("Type not found: {}", type_name);
@@ -212,7 +213,7 @@ fn unpack(
         unpack_files(
             &kfc_file,
             &file,
-            &type_collection,
+            &type_registry,
             output_dir,
             guids,
             thread_count
@@ -221,7 +222,7 @@ fn unpack(
         unpack_stdout(
             &kfc_file,
             &file,
-            &type_collection,
+            &type_registry,
             guids,
             thread_count
         )
@@ -233,7 +234,7 @@ fn unpack(
 fn unpack_files(
     kfc_file: &Path,
     file: &KFCFile,
-    type_collection: &TypeCollection,
+    type_registry: &TypeRegistry,
     output_dir: &Path,
     guids: HashSet<&DescriptorGuid>,
     thread_count: u8
@@ -264,7 +265,7 @@ fn unpack_files(
 
             let handle = s.spawn(move || {
                 let mut buf = Vec::with_capacity(1024);
-                let mut reader = match KFCReader::new(kfc_file, dir, type_collection) {
+                let mut reader = match KFCReader::new(kfc_file, dir, type_registry) {
                     Ok(file) => file,
                     Err(e) => {
                         pb.suspend(|| {
@@ -298,9 +299,9 @@ fn unpack_files(
                             }
                         };
 
-                        let type_info = type_collection.get_type_by_qualified_hash(guid.type_hash)
+                        let r#type = type_registry.get_by_hash(LookupKey::Qualified(guid.type_hash))
                             .ok_or_else(|| anyhow::anyhow!("Type not found: {:0>8x}", guid.type_hash))?;
-                        let type_name: &str = &type_info.name;
+                        let type_name: &str = &r#type.name;
                         let parent = output_dir.join(type_name);
 
                         if !parent.exists() {
@@ -373,7 +374,7 @@ fn unpack_files(
 fn unpack_stdout(
     path: &Path,
     file: &KFCFile,
-    type_collection: &TypeCollection,
+    type_registry: &TypeRegistry,
     guids: HashSet<&DescriptorGuid>,
     thread_count: u8
 ) -> Result<(), Error> {
@@ -390,7 +391,7 @@ fn unpack_stdout(
 
             let handle = s.spawn(move || {
                 let mut buf = Vec::with_capacity(1024);
-                let mut reader = match KFCReader::new(path, dir, type_collection) {
+                let mut reader = match KFCReader::new(path, dir, type_registry) {
                     Ok(file) => file,
                     Err(e) => {
                         let error = serde_json::json!({
@@ -531,7 +532,7 @@ fn repack(
         }
     }
 
-    let type_collection = load_type_collection(Some(game_dir), file_name, true)?;
+    let type_registry = load_type_registry(Some(game_dir), file_name, true)?;
 
     let mut ref_kfc_file = match KFCFile::from_path(&kfc_path_bak, false) {
         Ok(file) => file,
@@ -553,7 +554,7 @@ fn repack(
             &kfc_path,
             &mut ref_kfc_file,
             files,
-            &type_collection,
+            &type_registry,
             thread_count
         );
 
@@ -570,7 +571,7 @@ fn repack(
         let result = repack_stdin(
             &kfc_path,
             &mut ref_kfc_file,
-            &type_collection,
+            &type_registry,
             thread_count
         );
 
@@ -590,14 +591,14 @@ fn repack_files(
     kfc_path: &Path,
     ref_kfc_file: &mut KFCFile,
     files: Vec<PathBuf>,
-    type_collection: &TypeCollection,
+    type_registry: &TypeRegistry,
     thread_count: u8
 ) -> Result<(), Error> {
     if files.is_empty() {
         fatal!("No files found to repack");
     }
 
-    let mut writer = match KFCWriter::new(kfc_path, ref_kfc_file, type_collection) {
+    let mut writer = match KFCWriter::new(kfc_path, ref_kfc_file, type_registry) {
         Ok(writer) => writer,
         Err(e) => fatal!("Failed to open {}: {}", kfc_path.display(), e)
     };
@@ -650,8 +651,8 @@ fn repack_files(
 
                     let result: anyhow::Result<()> = (|| {
                         let reader = BufReader::new(File::open(&file)?);
-                        let descriptor = serde_json::from_reader::<_, serde_json::Value>(reader)?;
-                        let result = crate::util::serialize_descriptor(type_collection, &descriptor)?;
+                        let descriptor = serde_json::from_reader::<_, Value>(reader)?;
+                        let result = crate::util::serialize_descriptor(type_registry, &descriptor)?;
 
                         tx.send(result).unwrap();
 
@@ -746,10 +747,10 @@ fn repack_files(
 fn repack_stdin(
     kfc_path: &Path,
     ref_kfc_file: &mut KFCFile,
-    type_collection: &TypeCollection,
+    type_registry: &TypeRegistry,
     thread_count: u8
 ) -> Result<(), Error> {
-    let mut writer = match KFCWriter::new(kfc_path, ref_kfc_file, type_collection) {
+    let mut writer = match KFCWriter::new(kfc_path, ref_kfc_file, type_registry) {
         Ok(writer) => writer,
         Err(e) => fatal!("Failed to open {}: {}", kfc_path.display(), e)
     };
@@ -773,7 +774,7 @@ fn repack_stdin(
 
             let handle = s.spawn(move || {
                 for (i, descriptor_str) in rx_in.iter() {
-                    let descriptor = match serde_json::from_str::<serde_json::Value>(&descriptor_str) {
+                    let descriptor = match serde_json::from_str::<Value>(&descriptor_str) {
                         Ok(d) => d,
                         Err(e) => {
                             failed_repacks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -782,7 +783,7 @@ fn repack_stdin(
                         }
                     };
 
-                    let result = match crate::util::serialize_descriptor(type_collection, &descriptor) {
+                    let result = match crate::util::serialize_descriptor(type_registry, &descriptor) {
                         Ok(result) => result,
                         Err(e) => {
                             failed_repacks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -920,16 +921,14 @@ fn extract_types(
     file_name: Option<&str>,
 ) -> Result<(), Error> {
     let executable = get_file(game_dir, file_name, "exe")?;
-
-    let mut type_collection = TypeCollection::default();
-    let count = match type_collection.load_from_executable(executable) {
+    let mut type_registry = match TypeRegistry::load_from_executable(executable) {
         Ok(count) => count,
         Err(e) => {
             fatal!("Failed to extract types: {}", e)
         }
     };
 
-    info!("Extracted a total of {} types", count);
+    info!("Extracted a total of {} types", type_registry.len());
 
     let file_name = get_file(game_dir, file_name, "kfc")?;
     let version_tag = match KFCFile::get_version_tag(&file_name) {
@@ -937,13 +936,13 @@ fn extract_types(
         Err(e) => fatal!("Failed to read {}: {}", file_name.display(), e)
     };
 
-    type_collection.version = version_tag;
+    type_registry.version = version_tag;
 
     let path = current_exe().unwrap()
         .parent().unwrap()
         .join("reflection_data.json");
 
-    match dump_types_to_path(&type_collection, path, false) {
+    match dump_types_to_path(&type_registry, path, false) {
         Ok(_) => {},
         Err(e) => {
             fatal!("Failed to dump reflection data: {}", e)
@@ -955,11 +954,11 @@ fn extract_types(
     Ok(())
 }
 
-fn load_type_collection(
+fn load_type_registry(
     game_dir: Option<&Path>,
     file_name: Option<&str>,
     retry: bool
-) -> Result<TypeCollection, Error> {
+) -> Result<TypeRegistry, Error> {
     let flag = AtomicBool::new(false);
     let pb = ProgressBar::no_length();
 
@@ -996,8 +995,8 @@ fn load_type_collection(
 
     pb.finish_and_clear();
 
-    let type_collection = match result {
-        Ok(type_collection) => {
+    let type_registry = match result {
+        Ok(type_registry) => {
             if let Some(game_dir) = game_dir {
                 let kfc_path = get_file(game_dir, file_name, "kfc")?;
                 let version_tag = match KFCFile::get_version_tag(&kfc_path) {
@@ -1005,25 +1004,25 @@ fn load_type_collection(
                     Err(e) => fatal!("Failed to read {}: {}", kfc_path.display(), e)
                 };
 
-                if type_collection.version != version_tag {
+                if type_registry.version != version_tag {
                     if retry {
                         warn!("reflection_data.json is outdated, attempting to extract types again...");
                         extract_types(game_dir, file_name)?;
-                        return load_type_collection(Some(game_dir), file_name, false);
+                        return load_type_registry(Some(game_dir), file_name, false);
                     }
 
                     fatal!("reflection_data.json is outdated, please extract types again");
                 }
             }
 
-            type_collection
+            type_registry
         },
         Err(TypeParseError::Io(e)) => {
             if let Some(game_dir) = game_dir {
                 if e.kind() == std::io::ErrorKind::NotFound && retry {
                     warn!("reflection_data.json not found, attempting to extract types first...");
                     extract_types(game_dir, file_name)?;
-                    return load_type_collection(Some(game_dir), file_name, false);
+                    return load_type_registry(Some(game_dir), file_name, false);
                 } else {
                     fatal!("Failed to load reflection_data.json: {}", e);
                 }
@@ -1038,7 +1037,7 @@ fn load_type_collection(
                 if retry {
                     warn!("reflection_data.json is invalid, attempting to extract types again...");
                     extract_types(game_dir, file_name)?;
-                    return load_type_collection(Some(game_dir), file_name, false);
+                    return load_type_registry(Some(game_dir), file_name, false);
                 }
             }
 
@@ -1046,9 +1045,9 @@ fn load_type_collection(
         }
     };
 
-    info!("Loaded a total of {} types", type_collection.len());
+    info!("Loaded a total of {} types", type_registry.len());
 
-    Ok(type_collection)
+    Ok(type_registry)
 }
 
 fn assemble_impact(
@@ -1056,7 +1055,7 @@ fn assemble_impact(
     output_file: Option<&Path>,
     guid: Option<&str>,
 ) -> Result<(), Error> {
-    let type_collection = load_type_collection(None, None, true)?;
+    let type_registry = load_type_registry(None, None, true)?;
     let file_name = input_file.file_stem().unwrap().to_str().unwrap();
 
     let guid_str = guid
@@ -1104,7 +1103,7 @@ fn assemble_impact(
 
     // assemble bytecode
 
-    let assembler = ImpactAssembler::new(&type_collection);
+    let assembler = ImpactAssembler::new(&type_registry);
 
     let impact_ops = match assembler.parse_text(&program_data, &impact_content) {
         Ok(ops) => ops,
@@ -1119,7 +1118,7 @@ fn assemble_impact(
     // create program
 
     let impact_program = match program_data.into_program(
-        &type_collection,
+        &type_registry,
         guid.as_blob_guid(),
         ImpactAssembler::assemble(&impact_ops),
         ImpactAssembler::assemble(&shutdown_ops),
@@ -1158,7 +1157,7 @@ fn disassemble_impact(
     input_file: &Path,
     output_file: Option<&Path>,
 ) -> Result<(), Error> {
-    let type_collection = load_type_collection(None, None, true)?;
+    let type_registry = load_type_registry(None, None, true)?;
     let output_file = output_file.unwrap_or(input_file);
     let file_name = output_file.file_stem().unwrap().to_str().unwrap();
 
@@ -1180,7 +1179,7 @@ fn disassemble_impact(
 
     // extract and write data
 
-    let impact_data = match ImpactProgramData::from_program(&type_collection, &impact_program) {
+    let impact_data = match ImpactProgramData::from_program(&type_registry, &impact_program) {
         Ok(data) => data,
         Err(e) => fatal!("Failed to parse data from program: {}", e)
     };
@@ -1197,7 +1196,7 @@ fn disassemble_impact(
 
     // disassemble bytecode
 
-    let assembler = ImpactAssembler::new(&type_collection);
+    let assembler = ImpactAssembler::new(&type_registry);
 
     let mut impact_file_writer = match File::create(&impact_file) {
         Ok(file) => BufWriter::new(file),
@@ -1236,8 +1235,8 @@ fn disassemble_impact(
 }
 
 fn extract_nodes() -> Result<(), Error> {
-    let type_collection = load_type_collection(None, None, true)?;
-    let nodes = type_collection.get_impact_nodes()
+    let type_registry = load_type_registry(None, None, true)?;
+    let nodes = type_registry.get_impact_nodes()
         .into_values()
         .collect::<Vec<_>>();
 
@@ -1318,16 +1317,16 @@ fn get_file_name(
 
 fn load_types_from_path(
     path: impl AsRef<Path>
-) -> Result<TypeCollection, TypeParseError> {
+) -> Result<TypeRegistry, TypeParseError> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
-    let json = serde_json::from_reader::<_, TypeCollection>(reader)?;
+    let json = serde_json::from_reader::<_, TypeRegistry>(reader)?;
 
     Ok(json)
 }
 
 fn dump_types_to_path(
-    type_collection: &TypeCollection,
+    type_registry: &TypeRegistry,
     path: impl AsRef<Path>,
     pretty: bool
 ) -> Result<(), TypeParseError> {
@@ -1335,9 +1334,9 @@ fn dump_types_to_path(
     let writer = BufWriter::new(file);
 
     if pretty {
-        serde_json::to_writer_pretty(writer, type_collection)?;
+        serde_json::to_writer_pretty(writer, type_registry)?;
     } else {
-        serde_json::to_writer(writer, &type_collection)?;
+        serde_json::to_writer(writer, &type_registry)?;
     }
 
     Ok(())
