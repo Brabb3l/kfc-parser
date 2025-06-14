@@ -672,7 +672,7 @@ impl Value {
     ///
     /// # Layout
     ///
-    /// ```
+    /// ```no_run
     /// struct BlobArray {
     ///    offset: u32, // relative offset to the array data
     ///    length: u32, // length of the array (in elements)
@@ -733,7 +733,7 @@ impl Value {
     ///
     /// # Layout
     ///
-    /// ```
+    /// ```no_run
     /// struct BlobString {
     ///     offset: u32, // relative offset to the string data
     ///     length: u32, // length of the string (in bytes)
@@ -778,7 +778,7 @@ impl Value {
     ///
     /// # Layout
     ///
-    /// ```
+    /// ```no_run
     /// struct BlobOptional {
     ///     offset: u32, // relative offset to the inner value
     ///     size: u32, // size of the inner value (size of the inner type)
@@ -817,11 +817,12 @@ impl Value {
     ///
     /// # Layout
     ///
-    /// ```
+    /// ```no_run
     /// struct BlobVariant {
     ///     qualified_hash: u32, // hash of the variant type
     ///     offset: u32, // relative offset to the variant data
     ///     size: u32, // size of the variant data (size of the variant type)
+    /// }
     /// ```
     #[inline]
     fn write_blob_variant<W: Write + Seek>(
