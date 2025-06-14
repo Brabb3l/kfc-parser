@@ -60,3 +60,58 @@ fn is_section_separator(c: char) -> bool {
     c == '_'
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_GUID_BYTES: [u8; 16] = [
+        0x33, 0x22, 0x11, 0x00,
+        0x55, 0x44,
+        0x77, 0x66,
+        0x88, 0x99,
+        0xAA, 0xBB, 0xCC, 0xDD,
+        0xEE, 0xFF
+    ];
+
+    const TEST_GUID_STR_LOWER: &str = "00112233-4455-6677-8899-aabbccddeeff";
+    const TEST_GUID_STR_UPPER: &str = "00112233-4455-6677-8899-AABBCCDDEEFF";
+
+    #[test]
+    fn test_string_to_guid() {
+        let guid = string_to_guid(TEST_GUID_STR_LOWER)
+            .expect("Failed to convert string to GUID");
+
+        assert_eq!(guid, TEST_GUID_BYTES);
+    }
+    #[test]
+    fn test_guid_to_guid_upper() {
+        let guid = string_to_guid(TEST_GUID_STR_UPPER)
+            .expect("Failed to convert string to GUID");
+
+        assert_eq!(guid, TEST_GUID_BYTES);
+    }
+
+    #[test]
+    fn test_invalid_string_to_guid() {
+        assert!(string_to_guid("invalid-guid").is_none());
+        assert!(string_to_guid("12345678-1234-1234-1234-1234567890a").is_none());
+        assert!(string_to_guid("00112233-4455-6677-8899-aabbccddeeffg").is_none());
+        assert!(string_to_guid("00112233-4455-6677-8899-aabbccddeeff-").is_none());
+    }
+
+    #[test]
+    fn test_guid_to_string() {
+        let guid = [
+            0x33, 0x22, 0x11, 0x00,
+            0x55, 0x44,
+            0x77, 0x66,
+            0x88, 0x99,
+            0xAA, 0xBB, 0xCC, 0xDD,
+            0xEE, 0xFF
+        ];
+        let guid_str = guid_to_string(&guid);
+
+        assert_eq!(guid_str, TEST_GUID_STR_LOWER);
+    }
+
+}

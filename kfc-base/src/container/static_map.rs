@@ -206,3 +206,53 @@ impl<K: Eq + Hash + Ord + StaticHash, V> From<HashMap<K, V>> for StaticMap<K, V>
     }
 
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_map() -> StaticMap<u32, &'static str> {
+        let mut builder = StaticMapBuilder::default();
+
+        builder.insert(1, "one");
+        builder.insert(2, "two");
+        builder.insert(3, "three");
+
+        builder.build()
+    }
+
+    #[test]
+    fn test_static_map_builder() {
+        let mut builder = StaticMapBuilder::default();
+
+        builder.insert(1, "one");
+        builder.insert(2, "two");
+        builder.insert(3, "three");
+
+        assert_eq!(builder.len(), 3);
+        assert!(!builder.is_empty());
+
+        assert!(builder.contains_key(&1));
+        assert!(builder.contains_key(&2));
+        assert!(builder.contains_key(&3));
+        assert!(!builder.contains_key(&4));
+    }
+
+    #[test]
+    fn test_static_map() {
+        let map = create_test_map();
+
+        assert_eq!(map.len(), 3);
+
+        assert!(map.contains_key(&1));
+        assert!(map.contains_key(&2));
+        assert!(map.contains_key(&3));
+        assert!(!map.contains_key(&4));
+
+        assert_eq!(map.get(&1), Some(&"one"));
+        assert_eq!(map.get(&2), Some(&"two"));
+        assert_eq!(map.get(&3), Some(&"three"));
+        assert_eq!(map.get(&4), None);
+    }
+
+}

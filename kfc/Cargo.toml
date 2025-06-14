@@ -13,3 +13,6 @@ kfc-blob = { path = "../kfc-blob", optional = true }
 default = ["descriptor"]
 descriptor = ["kfc-descriptor"]
 blob = ["kfc-blob"]
+
+[dev-dependencies]
+serde_json.workspace = true
