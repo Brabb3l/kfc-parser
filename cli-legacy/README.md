@@ -1,6 +1,6 @@
 # cli-legacy
 
-This crate has been deprecated and will no longer receive additional features but will (for the foreseeable future) continue to receive bug fixes.  
+**This crate has been deprecated and will no longer receive additional features but will (for the foreseeable future) continue to receive bug fixes.**  
 
 This crate provides a command-line interface (CLI) for working with the **`.kfc`** format used by Enshrouded.
 It allows users to unpack, repack, and restore game files, as well as disassemble and assemble impact programs.
