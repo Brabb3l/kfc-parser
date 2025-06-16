@@ -8,7 +8,7 @@ use kfc::{
 
 use crate::{
     mapped::{
-        MappedArray, MappedBit, MappedEnum, MappedStruct, MappedValue, MappedVariant, MappingError,
+        MappedArray, MappedBit, MappedEnum, MappedOptional, MappedStruct, MappedValue, MappedVariant, MappingError
     },
     value::{Value, Variant},
 };
@@ -165,13 +165,10 @@ impl Value {
             MappedValue::Struct(r#struct) => Self::from_struct(r#struct, options)?,
             MappedValue::Array(array) => Self::from_array(array, options)?,
             MappedValue::String(s) => Value::String(s.as_str()?.to_string()),
-            MappedValue::Optional(v) => v
-                .map(|v| Self::from_impl(*v, options))
-                .transpose()?
-                .unwrap_or(Value::None),
+            MappedValue::Optional(optional) => Self::from_optional(optional, options)?,
             MappedValue::Variant(variant) => Self::from_variant(variant, options)?,
             MappedValue::Guid(guid) => Self::from_guid(guid, options),
-            MappedValue::Reference(reference) => Self::from_guid(reference.guid().clone(), options),
+            MappedValue::Reference(reference) => Self::from_guid(reference.into_guid(), options),
         })
     }
 
@@ -254,35 +251,53 @@ impl Value {
     }
 
     #[inline]
-    fn from_variant<D, T>(
-        variant: Option<MappedVariant<D, T>>,
+    fn from_optional<D, T>(
+        optional: MappedOptional<D, T>,
         options: &ConversionOptions,
     ) -> Result<Value, MappingError>
     where
         D: Borrow<[u8]> + Clone,
         T: Borrow<TypeRegistry> + Clone,
     {
-        Ok(match variant {
+        match optional.into_value() {
+            Some(value) => Self::from_impl(value, options),
+            None => Ok(Value::None),
+        }
+    }
+
+    #[inline]
+    fn from_variant<D, T>(
+        variant: MappedVariant<D, T>,
+        options: &ConversionOptions,
+    ) -> Result<Value, MappingError>
+    where
+        D: Borrow<[u8]> + Clone,
+        T: Borrow<TypeRegistry> + Clone,
+    {
+        Ok(match variant.into_value() {
             None => Value::None,
             Some(variant) => {
-                let value = Self::from_impl(MappedValue::Struct(variant.value().clone()), options)?
-                    .into_struct()
-                    .expect("Expected variant value to be a struct");
-
                 if !options.variant.as_struct {
-                    let type_index = variant.variant_type().index;
+                    let type_index = variant.r#type().index;
+                    let value = Self::from_impl(variant.into(), options)?
+                        .into_struct()
+                        .expect("Expected variant value to be a struct");
 
                     Value::Variant(Variant { type_index, value }.into())
                 } else {
                     let mut map = IndexMap::with_capacity(2);
 
                     if options.variant.qualified_type_name {
-                        let name = variant.variant_type().qualified_name.clone();
+                        let name = variant.r#type().qualified_name.clone();
                         map.insert("$type".to_string(), Value::String(name));
                     } else {
-                        let type_index = variant.variant_type().index.as_usize() as u64;
+                        let type_index = variant.r#type().index.as_usize() as u64;
                         map.insert("$type".to_string(), Value::UInt(type_index));
                     }
+
+                    let value = Self::from_impl(variant.into(), options)?
+                        .into_struct()
+                        .expect("Expected variant value to be a struct");
 
                     map.insert("$value".to_string(), Value::Struct(value.into()));
 

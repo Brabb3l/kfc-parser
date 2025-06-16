@@ -32,8 +32,8 @@ pub enum MappedValue<D, T> {
     Struct(MappedStruct<D, T>),
     Array(MappedArray<D, T>),
     String(MappedString<D>),
-    Optional(Option<Box<MappedValue<D, T>>>),
-    Variant(Option<MappedVariant<D, T>>),
+    Optional(MappedOptional<D, T>),
+    Variant(MappedVariant<D, T>),
     Reference(MappedReference<T>),
     Guid(BlobGuid),
 }
@@ -329,7 +329,7 @@ where
     }
 
     #[inline]
-    pub fn as_optional(&self) -> Option<&Option<Box<MappedValue<D, T>>>> {
+    pub fn as_optional(&self) -> Option<&MappedOptional<D, T>> {
         if let MappedValue::Optional(value) = self {
             Some(value)
         } else {
@@ -345,7 +345,7 @@ where
     #[inline]
     pub fn as_variant(&self) -> Option<&MappedVariant<D, T>> {
         if let MappedValue::Variant(value) = self {
-            value.as_ref()
+            Some(value)
         } else {
             None
         }
@@ -499,19 +499,28 @@ where
             PrimitiveType::BlobOptional => {
                 let inner_type = match get_inner_type_opt(r#type) {
                     Some(t) => t,
-                    None => return Ok(MappedValue::Optional(None)),
+                    None => return Ok(MappedOptional::new(
+                        r#type.clone(),
+                        None
+                    ).into()),
                 };
                 let blob_offset = get_u32(data.borrow(), offset)? as usize;
 
                 if blob_offset == 0 {
-                    return Ok(MappedValue::Optional(None));
+                    return Ok(MappedOptional::new(
+                        r#type.clone(),
+                        None
+                    ).into());
                 }
 
-                Some(Box::new(Self::from_impl(
-                    &inner_type,
-                    data,
-                    offset + blob_offset
-                )?)).into()
+                MappedOptional::new(
+                    r#type.clone(),
+                    Some(Self::from_impl(
+                        &inner_type,
+                        data,
+                        offset + blob_offset
+                    )?)
+                ).into()
             }
             PrimitiveType::BlobVariant => {
                 let variant_hash = get_u32(data.borrow(), offset)?;
@@ -519,7 +528,10 @@ where
                 // let size = get_u32(data, 8)? as usize;
 
                 if blob_offset == 0 {
-                    return Ok(MappedValue::Variant(None));
+                    return Ok(MappedVariant::new(
+                        r#type.clone(),
+                        None
+                    ).into());
                 }
 
                 let variant_type = r#type.type_registry().borrow()
@@ -531,14 +543,14 @@ where
                     variant_type
                 );
 
-                Some(MappedVariant::new(
+                MappedVariant::new(
                     r#type.clone(),
-                    MappedStruct::new(
+                    Some(MappedStruct::new(
                         variant_type,
                         data.clone(),
                         offset + blob_offset + 4
-                    ),
-                )).into()
+                    )),
+                ).into()
             }
             PrimitiveType::ObjectReference => MappedReference::new(
                 r#type.clone(),
@@ -707,9 +719,44 @@ bitmask!(MappedBitmask32, u32);
 bitmask!(MappedBitmask64, u64);
 
 #[derive(Debug, Clone)]
+pub struct MappedOptional<D, T> {
+    r#type: TypeHandle<T>,
+    value: Option<Box<MappedValue<D, T>>>,
+}
+
+impl<D, T> MappedOptional<D, T>
+where
+    D: Borrow<[u8]> + Clone,
+    T: Borrow<TypeRegistry> + Clone,
+{
+    #[inline]
+    pub fn new(r#type: TypeHandle<T>, value: Option<MappedValue<D, T>>) -> Self {
+        Self {
+            r#type,
+            value: value.map(Box::new)
+        }
+    }
+
+    #[inline]
+    pub fn r#type(&self) -> &TypeHandle<T> {
+        &self.r#type
+    }
+
+    #[inline]
+    pub fn value(&self) -> Option<&MappedValue<D, T>> {
+        self.value.as_deref()
+    }
+
+    #[inline]
+    pub fn into_value(self) -> Option<MappedValue<D, T>> {
+        self.value.map(|v| *v)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct MappedVariant<D, T> {
     base_type: TypeHandle<T>,
-    value: MappedStruct<D, T>,
+    value: Option<MappedStruct<D, T>>,
 }
 
 impl<D, T> MappedVariant<D, T>
@@ -718,7 +765,7 @@ where
     T: Borrow<TypeRegistry> + Clone,
 {
     #[inline]
-    fn new(base_type: TypeHandle<T>, value: MappedStruct<D, T>) -> Self {
+    fn new(base_type: TypeHandle<T>, value: Option<MappedStruct<D, T>>) -> Self {
         Self { base_type, value }
     }
 
@@ -728,13 +775,18 @@ where
     }
 
     #[inline]
-    pub fn variant_type(&self) -> &TypeHandle<T> {
-        &self.value.r#type
+    pub fn variant_type(&self) -> Option<&TypeHandle<T>> {
+        self.value.as_ref().map(|v| &v.r#type)
     }
 
     #[inline]
-    pub fn value(&self) -> &MappedStruct<D, T> {
-        &self.value
+    pub fn value(&self) -> Option<&MappedStruct<D, T>> {
+        self.value.as_ref()
+    }
+
+    #[inline]
+    pub fn into_value(self) -> Option<MappedStruct<D, T>> {
+        self.value
     }
 }
 
@@ -961,6 +1013,11 @@ where
     pub fn guid(&self) -> &BlobGuid {
         &self.guid
     }
+
+    #[inline]
+    pub fn into_guid(self) -> BlobGuid {
+        self.guid
+    }
 }
 
 macro_rules! impl_from_mapped_value {
@@ -997,7 +1054,7 @@ impl_from_mapped_value!(MappedBitmask64<T>, Bitmask64);
 impl_from_mapped_value!(MappedStruct<D, T>, Struct);
 impl_from_mapped_value!(MappedArray<D, T>, Array);
 impl_from_mapped_value!(MappedString<D>, String);
-impl_from_mapped_value!(Option<Box<MappedValue<D, T>>>, Optional);
-impl_from_mapped_value!(Option<MappedVariant<D, T>>, Variant);
+impl_from_mapped_value!(MappedOptional<D, T>, Optional);
+impl_from_mapped_value!(MappedVariant<D, T>, Variant);
 impl_from_mapped_value!(MappedReference<T>, Reference);
 impl_from_mapped_value!(BlobGuid, Guid);
