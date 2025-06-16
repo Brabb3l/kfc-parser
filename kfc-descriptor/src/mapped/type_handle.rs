@@ -86,7 +86,7 @@ where
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        // SAFETY: This assumes that the index is always valid which is guaranteed by the TypeRegistry
+        // This assumes that the index is always valid which is guaranteed by the TypeRegistry
         self.type_registry.borrow()
             .get(self.index)
             .unwrap()
@@ -117,7 +117,7 @@ where
                 let mut current_type = self.base_type;
 
                 for _ in 0..self.depth {
-                    // SAFETY: checked during construction of the iterator
+                    // This is checked during construction of the iterator
                     current_type = self.type_registry.borrow()
                         .get_inner_type(current_type)
                         .unwrap();

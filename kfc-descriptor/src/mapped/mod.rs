@@ -845,7 +845,7 @@ where
             }
         }
 
-        // SAFETY: The loop above guarantees that `field` is Some
+        // The loop above guarantees that `field` is Some
         let field = field.unwrap();
         let type_registry = self.r#type.type_registry().clone();
 
