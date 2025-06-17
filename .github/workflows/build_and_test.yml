@@ -1,4 +1,4 @@
-name: Build and Test KFC Parser
+name: Build and Test
 
 on:
   push:
@@ -7,17 +7,19 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  kfc-parser:
+  tools:
     strategy:
       matrix:
-        toolchain:
-          - stable
-        platform:
-          - os: windows-latest
+        binary:
+          - name: kfc-parser
+            os: windows-latest
             target: x86_64-pc-windows-msvc
-            bin: kfc-parser.exe
+            output: kfc-parser.exe
+        profile:
+          - debug
+          - release
 
-    runs-on: windows-latest
+    runs-on: ${{ matrix.binary.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,32 +27,29 @@ jobs:
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform.target }}
+          toolchain: ${{ matrix.binary.nightly && 'nightly' || 'stable' }}
+          targets: ${{ matrix.binary.target }}
 
-      - name: Cache Cargo registry
+      - name: Cache
         uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.profile }}
 
-      - name: Build Debug
-        run: cargo build --locked --verbose --target ${{ matrix.platform.target }}
+      # Build and Test
 
-      - name: Build Release
-        run: cargo build --locked --release --verbose --target ${{ matrix.platform.target }}
+      - name: Build
+        run: cargo ${{ matrix.binary.nightly && '+nightly' || '' }} build --target ${{ matrix.binary.target }} -p ${{ matrix.binary.name }} --locked --verbose --profile ${{ matrix.profile }}
 
-      - name: Run Tests
-        run: cargo test --locked --verbose --target ${{ matrix.platform.target }}
+      - name: Test
+        if: ${{ matrix.binary.test == true }}
+        run: cargo ${{ matrix.binary.nightly && '+nightly' || '' }} test --target ${{ matrix.binary.target }} -p ${{ matrix.binary.name }} --locked --verbose --profile ${{ matrix.profile }}
 
-      - name: Upload Debug Build
+      # Upload
+
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: 'kfc-parser-debug'
-          path: target/${{ matrix.platform.target }}/debug/${{ matrix.platform.bin }}
-          retention-days: 90
-          if-no-files-found: error
-
-      - name: Upload Release Build
-        uses: actions/upload-artifact@v4
-        with:
-          name: 'kfc-parser'
-          path: target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}
+          name: ${{ matrix.binary.output }} (${{ matrix.profile == 'dev' && 'debug' || matrix.profile }})
+          path: target/${{ matrix.binary.target }}/${{ matrix.profile == 'dev' && 'debug' || matrix.profile}}/${{ matrix.binary.output }}
           retention-days: 90
           if-no-files-found: error
