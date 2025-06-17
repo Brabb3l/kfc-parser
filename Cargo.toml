@@ -1,11 +1,12 @@
 [workspace]
 resolver = "3"
 members = [
-    "kfc",
-    "kfc-base",
-    "kfc-blob",
+    "crates/kfc",
+    "crates/kfc-base",
+    "crates/kfc-blob",
+    "crates/kfc-descriptor",
 
-    "cli-legacy",
+    "crates/cli-legacy",
 ]
 
 [workspace.package]
@@ -16,7 +17,7 @@ license = "GPL-3.0-or-later"
 license-file = "LICENSE"
 
 [workspace.dependencies]
-kfc = { path = "kfc", features = ["blob"] }
+kfc = { path = "crates/kfc", features = ["blob"] }
 
 anyhow = { version = "1.0.95", features = ["backtrace"] }
 thiserror = "2.0.11"
