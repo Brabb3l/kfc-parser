@@ -157,7 +157,7 @@ impl PrimitiveType {
             0x1B => Self::BlobVariant,
             0x1C => Self::ObjectReference,
             0x1D => Self::Guid,
-            _ => panic!("Invalid PrimitiveType: 0x{:X}", value),
+            _ => panic!("Invalid PrimitiveType: 0x{value:X}"),
         }
     }
 

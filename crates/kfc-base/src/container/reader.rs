@@ -24,23 +24,28 @@ where
         file: F,
         type_registry: T,
     ) -> std::io::Result<Self> {
+        let reader = BufReader::new(File::open(&path)?);
+
         Ok(Self {
             path: path.as_ref().into(),
             file,
             type_registry,
-            reader: BufReader::new(File::open(path)?),
+            reader,
             dat_readers: Vec::new(),
         })
     }
 
+    #[inline]
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    #[inline]
     pub fn type_registry(&self) -> &TypeRegistry {
         self.type_registry.borrow()
     }
 
+    #[inline]
     pub fn file(&self) -> &KFCFile {
         self.file.borrow()
     }

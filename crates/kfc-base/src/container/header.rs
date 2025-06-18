@@ -183,6 +183,7 @@ impl KFCLocation {
         }
     }
 
+    #[inline]
     pub fn read<R: Read + Seek>(reader: &mut R) -> Result<Self, KFCReadError> {
         let offset = reader.read_u32_offset()?;
         let count = reader.read_u32()? as usize;
@@ -193,6 +194,7 @@ impl KFCLocation {
         })
     }
 
+    #[inline]
     pub fn write<W: Write + Seek>(&self, writer: &mut W) -> Result<(), KFCWriteError> {
         writer.write_offset(self.offset)?;
         writer.write_u32(self.count as u32)?;
@@ -218,6 +220,7 @@ pub struct DatInfo {
 
 impl DatInfo {
 
+    #[inline]
     pub fn read<R: Read>(reader: &mut R) -> Result<Self, KFCReadError> {
         let size = reader.read_u64()?;
         let count = reader.read_u32()? as usize;
@@ -229,6 +232,7 @@ impl DatInfo {
         })
     }
 
+    #[inline]
     pub fn write<W: Write + Seek>(&self, writer: &mut W) -> Result<(), KFCWriteError> {
         writer.write_u64(self.size)?;
         writer.write_u32(self.count as u32)?;
@@ -256,6 +260,7 @@ pub struct DescriptorLocation {
 
 impl DescriptorLocation {
 
+    #[inline]
     pub fn read<R: Read>(reader: &mut R) -> Result<Self, KFCReadError> {
         let offset = reader.read_u32()? as u64;
         let size = reader.read_u32()? as u64;
@@ -268,6 +273,7 @@ impl DescriptorLocation {
         })
     }
 
+    #[inline]
     pub fn write<W: Write + Seek>(&self, writer: &mut W) -> Result<(), KFCWriteError> {
         writer.write_u32(self.offset as u32)?;
         writer.write_u32(self.size as u32)?;
@@ -305,6 +311,7 @@ impl BlobLink {
         }
     }
 
+    #[inline]
     pub fn read<R: Read>(reader: &mut R) -> Result<Self, KFCReadError> {
         let offset = reader.read_u32()? as u64;
         let flags = reader.read_u16()?;
@@ -318,6 +325,7 @@ impl BlobLink {
         })
     }
 
+    #[inline]
     pub fn write<W: Write + Seek>(&self, writer: &mut W) -> Result<(), KFCWriteError> {
         writer.write_u32(self.offset as u32)?;
         writer.write_u16(self.flags)?;
@@ -352,6 +360,7 @@ impl DescriptorLink {
         }
     }
 
+    #[inline]
     pub fn read<R: Read>(reader: &mut R) -> Result<Self, KFCReadError> {
         let offset = reader.read_u32()? as u64;
         let size = reader.read_u32()? as u64;
@@ -362,6 +371,7 @@ impl DescriptorLink {
         })
     }
 
+    #[inline]
     pub fn write<W: Write + Seek>(&self, writer: &mut W) -> Result<(), KFCWriteError> {
         writer.write_u32(self.offset as u32)?;
         writer.write_u32(self.size as u32)?;
@@ -388,6 +398,7 @@ pub struct GroupInfo {
 
 impl GroupInfo {
 
+    #[inline]
     pub fn read<R: Read>(reader: &mut R) -> Result<Self, KFCReadError> {
         let internal_hash = reader.read_u32()?;
         let index = reader.read_u32()? as usize;
@@ -400,6 +411,7 @@ impl GroupInfo {
         })
     }
 
+    #[inline]
     pub fn write<W: Write + Seek>(&self, writer: &mut W) -> Result<(), KFCWriteError> {
         writer.write_u32(self.internal_hash)?;
         writer.write_u32(self.index as u32)?;

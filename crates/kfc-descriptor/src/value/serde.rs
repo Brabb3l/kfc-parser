@@ -13,13 +13,13 @@ impl Serialize for Value {
         S: serde::Serializer,
     {
         match self {
-            Value::None => serializer.serialize_unit(),
-            Value::Bool(b) => serializer.serialize_bool(*b),
-            Value::UInt(n) => n.serialize(serializer),
-            Value::SInt(n) => n.serialize(serializer),
-            Value::Float(f) => f.serialize(serializer),
-            Value::String(s) => serializer.serialize_str(s),
-            Value::Struct(m) => {
+            Self::None => serializer.serialize_unit(),
+            Self::Bool(b) => serializer.serialize_bool(*b),
+            Self::UInt(n) => n.serialize(serializer),
+            Self::SInt(n) => n.serialize(serializer),
+            Self::Float(f) => f.serialize(serializer),
+            Self::String(s) => serializer.serialize_str(s),
+            Self::Struct(m) => {
                 use serde::ser::SerializeMap;
                 let mut map = serializer.serialize_map(Some(m.len()))?;
                 for (k, v) in m.iter() {
@@ -27,22 +27,22 @@ impl Serialize for Value {
                 }
                 map.end()
             }
-            Value::Array(v) => v.serialize(serializer),
-            Value::Variant(v) => {
+            Self::Array(v) => v.serialize(serializer),
+            Self::Variant(v) => {
                 use serde::ser::SerializeStruct;
                 let mut s = serializer.serialize_struct("Variant", 2)?;
                 s.serialize_field("$type", &v.type_index)?;
                 s.serialize_field("$value", &v.value)?;
                 s.end()
             }
-            Value::Guid(guid) => guid.serialize(serializer),
+            Self::Guid(guid) => guid.serialize(serializer),
         }
     }
 }
 
 impl<'de> Deserialize<'de> for Value {
     #[inline]
-    fn deserialize<D>(deserializer: D) -> Result<Value, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {

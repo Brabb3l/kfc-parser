@@ -569,7 +569,7 @@ fn decode_bc6h(
     const BLOCK_WIDTH: usize = 4;
     const BLOCK_HEIGHT: usize = 4;
     const BLOCK_SIZE: usize = BLOCK_WIDTH * BLOCK_HEIGHT;
-    let num_blocks_x: usize = (width + BLOCK_WIDTH - 1) / BLOCK_WIDTH;
+    let num_blocks_x: usize = width.div_ceil(BLOCK_WIDTH);
     let num_blocks_y: usize = (height + BLOCK_WIDTH - 1) / BLOCK_HEIGHT;
 
     if data.len() < num_blocks_x * num_blocks_y * 16 {

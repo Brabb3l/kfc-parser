@@ -68,14 +68,17 @@ where
         })
     }
 
+    #[inline]
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    #[inline]
     pub fn type_registry(&self) -> &TypeRegistry {
         self.type_registry.borrow()
     }
 
+    #[inline]
     pub fn file(&self) -> &KFCFile {
         self.reference_file.borrow()
     }
@@ -122,9 +125,6 @@ where
 
         let size = self.data_writer.stream_position()? + self.default_data_size;
         let data = self.data_writer.into_inner();
-
-        let mut dat_infos = self.reference_file.borrow().get_dat_infos().to_vec();
-        dat_infos.extend(self.dat_infos);
 
         // header construction
 
@@ -234,7 +234,7 @@ where
             self.dat_infos.push(DatInfo::default());
 
             // Format: FILE_NAME_{INDEX}.dat where INDEX is 3 digits with leading zeros
-            let path = self.path.with_extension(format!("_{:03}.dat", index));
+            let path = self.path.with_extension(format!("_{index:03}.dat"));
             self.dat_writer = Some(BufWriter::new(File::create(path)?));
         }
 

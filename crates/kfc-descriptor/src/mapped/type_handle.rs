@@ -43,14 +43,14 @@ where
     }
 
     #[inline]
-    pub fn inner_type(&self) -> Option<TypeHandle<T>> {
+    pub fn inner_type(&self) -> Option<Self> {
         self.inner_type
-            .map(|index| TypeHandle::new(self.type_registry.clone(), index))
+            .map(|index| Self::new(self.type_registry.clone(), index))
     }
 
     #[inline]
-    pub fn unwrap_typedef(self) -> TypeHandle<T> {
-        TypeHandle::new(
+    pub fn unwrap_typedef(self) -> Self {
+        Self::new(
             self.type_registry.clone(),
             self.type_registry.borrow()
                 .unwrap_typedef(&self)

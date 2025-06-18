@@ -491,7 +491,7 @@ impl Value {
             PrimitiveType::UInt16 => writer.write_u16(value as u16)?,
             PrimitiveType::UInt32 => writer.write_u32(value as u32)?,
             PrimitiveType::UInt64 => writer.write_u64(value)?,
-            _ => panic!("Unsupported enum value type: {:?}", enum_value_type),
+            _ => panic!("Unsupported enum value type: {enum_value_type:?}"),
         }
 
         Ok(())
@@ -570,7 +570,7 @@ impl Value {
         writer: &mut Writer<W>,
         base_offset: u64,
     ) -> Result<(), WriteErrorInfo> {
-        if let Value::Struct(fields) = self {
+        if let Self::Struct(fields) = self {
             Self::write_struct_fields(fields, r#type, writer, base_offset)?;
 
             return Ok(());
@@ -590,7 +590,7 @@ impl Value {
     /// Each field value is written at the given [StructFieldMetadata::data_offset](kfc::reflection::StructFieldMetadata::data_offset).
     #[inline]
     fn write_struct_fields<W: Write + Seek>(
-        fields: &IndexMap<String, Value>,
+        fields: &IndexMap<String, Self>,
         r#type: &TypeMetadata,
         writer: &mut Writer<W>,
         base_offset: u64,
@@ -640,7 +640,7 @@ impl Value {
             .get_inner_type(r#type)
             .expect("invalid static array type");
 
-        if let Value::Array(values) = self {
+        if let Self::Array(values) = self {
             if values.len() != r#type.field_count as usize {
                 return Err(WriteErrorInfo::IncompatibleType {
                     got: format!("array of length {}", values.len()),
@@ -689,7 +689,7 @@ impl Value {
             .get_inner_type(r#type)
             .expect("invalid blob array type");
 
-        if let Value::Array(values) = self {
+        if let Self::Array(values) = self {
             let blob_size = values.len() as u64 * element_type.size as u64;
             let alignment = element_type.alignment as u64;
 
@@ -859,7 +859,7 @@ impl Value {
                     if let Some(value) = v.as_string() {
                         type_registry
                             .get_by_name(LookupKey::Qualified(value))
-                            .ok_or(WriteErrorInfo::InvalidTypeName(value.clone()))
+                            .ok_or_else(|| WriteErrorInfo::InvalidTypeName(value.clone()))
                     } else if let Some(v) = v.as_u64() {
                         let raw_index = TypeIndex::new(v as usize);
 
@@ -867,14 +867,14 @@ impl Value {
                             .get(raw_index)
                             .ok_or(WriteErrorInfo::InvalidType(raw_index))
                     } else {
-                        return Err(WriteErrorInfo::IncompatibleType {
+                        Err(WriteErrorInfo::IncompatibleType {
                             got: v.to_string(),
                             expected: "string".to_string(),
-                        });
+                        })
                     }
                 })
                 .transpose()?
-                .ok_or(WriteErrorInfo::MissingField("$type".to_string()))?;
+                .ok_or_else(|| WriteErrorInfo::MissingField("$type".to_string()))?;
 
             writer.path.pop();
 
@@ -885,13 +885,13 @@ impl Value {
             let variant_value = value
                 .get("$value")
                 .map(|v| {
-                    v.as_struct().ok_or(WriteErrorInfo::IncompatibleType {
+                    v.as_struct().ok_or_else(|| WriteErrorInfo::IncompatibleType {
                         got: v.to_string(),
                         expected: "struct".to_string(),
                     })
                 })
                 .transpose()?
-                .ok_or(WriteErrorInfo::MissingField("$value".to_string()))?;
+                .ok_or_else(|| WriteErrorInfo::MissingField("$value".to_string()))?;
 
             writer.path.pop();
 
@@ -1088,7 +1088,7 @@ impl TreePath {
         }
 
         self.stack[self.len].clear();
-        write!(self.stack[self.len], "{}", index).unwrap();
+        write!(self.stack[self.len], "{index}").unwrap();
         self.len += 1;
     }
 

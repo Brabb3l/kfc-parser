@@ -398,7 +398,7 @@ impl<'a, 'b> ImpactProgramDecompiler<'a, 'b> {
 
     fn decompile_function(
         &mut self,
-        state: &mut State,
+        state: &State,
         pc: &mut usize,
         index: u32
     ) -> usize {

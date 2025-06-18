@@ -15,12 +15,12 @@ struct TypeRegistrySerdeRef<'a> {
 }
 
 impl<'de> Deserialize<'de> for TypeRegistry {
-    fn deserialize<D>(deserializer: D) -> Result<TypeRegistry, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         let data = TypeRegistrySerdeOwned::deserialize(deserializer)?;
-        let mut registry = TypeRegistry {
+        let mut registry = Self {
             version: data.version,
             ..Default::default()
         };

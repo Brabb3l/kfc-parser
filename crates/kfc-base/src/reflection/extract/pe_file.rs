@@ -111,7 +111,7 @@ impl PEFile {
             });
         }
 
-        Ok(PEFile {
+        Ok(Self {
             data,
             sections,
             image_base,
@@ -200,7 +200,7 @@ impl PEFile {
     pub fn get_cursor_at(&self, offset: u64) -> std::io::Result<Cursor<&[u8]>> {
         self.data.get(offset as usize..)
             .map(Cursor::new)
-            .ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Out of bounds"))
+            .ok_or_else(|| std::io::Error::other("Out of bounds"))
     }
 
 }
@@ -228,7 +228,7 @@ impl<R: Read + Seek> ReadPEExt for R {
         file.va_to_fo(self.read_u64()?)
             .and_then(|offset| file.data.get(offset as usize..))
             .map(Cursor::new)
-            .ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Could not read pointee"))
+            .ok_or_else(|| std::io::Error::other("Could not read pointee"))
     }
 
     fn read_pointee_opt<'a>(
@@ -245,7 +245,7 @@ impl<R: Read + Seek> ReadPEExt for R {
             .and_then(|offset| file.data.get(offset as usize..))
             .map(Cursor::new)
             .map(Some)
-            .ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Could not read pointee"))
+            .ok_or_else(|| std::io::Error::other("Could not read pointee"))
     }
 
 }

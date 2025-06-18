@@ -44,7 +44,7 @@ impl ImpactProgramData {
     pub fn from_program(
         type_collection: &TypeRegistry,
         program: &ImpactProgram,
-    ) -> anyhow::Result<ImpactProgramData> {
+    ) -> anyhow::Result<Self> {
         let mut data_entries = Vec::new();
         let mut mapping_offsets = HashMap::new();
 
@@ -101,7 +101,7 @@ impl ImpactProgramData {
             }
         }
 
-        Ok(ImpactProgramData {
+        Ok(Self {
             data: data_entries,
             used_streams: program.used_streams.clone(),
         })
@@ -154,15 +154,15 @@ impl ImpactProgramData {
                     dbg_name,
                 });
             } else {
+                buf.clear();
+
                 if !entry.data.is_none() {
-                    buf.clear();
                     entry.data.write_into(
                         type_collection,
                         type_info,
                         &mut buf
                     )?;
                 } else {
-                    buf.clear();
                     buf.resize(type_info.size as usize, 0);
                 }
 

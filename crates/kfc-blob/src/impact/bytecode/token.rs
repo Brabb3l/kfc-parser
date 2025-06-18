@@ -81,13 +81,13 @@ pub enum TokenKind {
 impl std::fmt::Display for TokenKind {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            TokenKind::Comment => write!(f, "comment"),
-            TokenKind::Whitespace => write!(f, "whitespace"),
-            TokenKind::Newline => write!(f, "newline"),
-            TokenKind::Identifier => write!(f, "identifier"),
-            TokenKind::Number => write!(f, "number"),
-            TokenKind::Eof => write!(f, "EOF"),
-            TokenKind::Unknown => write!(f, "unknown"),
+            Self::Comment => write!(f, "comment"),
+            Self::Whitespace => write!(f, "whitespace"),
+            Self::Newline => write!(f, "newline"),
+            Self::Identifier => write!(f, "identifier"),
+            Self::Number => write!(f, "number"),
+            Self::Eof => write!(f, "EOF"),
+            Self::Unknown => write!(f, "unknown"),
         }
     }
 }

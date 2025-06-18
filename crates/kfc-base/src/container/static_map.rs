@@ -59,30 +59,37 @@ impl<K: std::cmp::PartialEq + StaticHash, V> StaticMap<K, V> {
         None
     }
 
+    #[inline]
     pub fn contains_key(&self, key: &K) -> bool {
         self.get(key).is_some()
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         self.keys.len()
     }
 
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.keys.is_empty()
     }
 
+    #[inline]
     pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
         self.keys.iter().zip(self.values.iter())
     }
 
+    #[inline]
     pub fn keys(&self) -> &[K] {
         &self.keys
     }
 
+    #[inline]
     pub fn values(&self) -> &[V] {
         &self.values
     }
 
+    #[inline]
     pub fn buckets(&self) -> &[StaticMapBucket] {
         &self.buckets
     }
@@ -117,6 +124,7 @@ pub struct StaticMapBucket {
 
 impl StaticMapBucket {
 
+    #[inline]
     pub fn read<R: Read>(reader: &mut R) -> std::io::Result<Self> {
         let index = reader.read_u32()? as usize;
         let count = reader.read_u32()? as usize;
@@ -124,6 +132,7 @@ impl StaticMapBucket {
         Ok(Self { index, count })
     }
 
+    #[inline]
     pub fn write<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
         writer.write_u32(self.index as u32)?;
         writer.write_u32(self.count as u32)?;
@@ -140,26 +149,32 @@ pub struct StaticMapBuilder<K, V> {
 
 impl<K: Eq + Hash + Ord + StaticHash, V> StaticMapBuilder<K, V> {
 
+    #[inline]
     pub fn insert(&mut self, key: K, value: V) {
         self.entries.insert(key, value);
     }
 
+    #[inline]
     pub fn get(&self, key: &K) -> Option<&V> {
         self.entries.get(key)
     }
 
+    #[inline]
     pub fn contains_key(&self, key: &K) -> bool {
         self.entries.contains_key(key)
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
+    #[inline]
     pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
         self.entries.iter()
     }
@@ -199,6 +214,7 @@ impl<K: Eq + Hash + Ord + StaticHash, V> StaticMapBuilder<K, V> {
 
 impl<K: Eq + Hash + Ord + StaticHash, V> From<HashMap<K, V>> for StaticMap<K, V> {
 
+    #[inline]
     fn from(map: HashMap<K, V>) -> Self {
         StaticMapBuilder {
             entries: map,

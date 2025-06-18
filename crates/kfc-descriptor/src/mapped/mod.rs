@@ -45,26 +45,25 @@ where
 {
     #[inline]
     pub fn is_none(&self) -> bool {
-        matches!(self, MappedValue::None)
+        matches!(self, Self::None)
     }
 
     #[inline]
     pub fn as_none(&self) -> Option<()> {
-        if let MappedValue::None = self {
-            Some(())
-        } else {
-            None
+        match self {
+            Self::None => Some(()),
+            _ => None,
         }
     }
 
     #[inline]
     pub fn is_bool(&self) -> bool {
-        matches!(self, MappedValue::Bool(_))
+        matches!(self, Self::Bool(_))
     }
 
     #[inline]
     pub fn as_bool(&self) -> Option<bool> {
-        if let MappedValue::Bool(value) = self {
+        if let Self::Bool(value) = self {
             Some(*value)
         } else {
             None
@@ -73,12 +72,12 @@ where
 
     #[inline]
     pub fn is_u8(&self) -> bool {
-        matches!(self, MappedValue::UInt8(_))
+        matches!(self, Self::UInt8(_))
     }
 
     #[inline]
     pub fn as_u8(&self) -> Option<u8> {
-        if let MappedValue::UInt8(value) = self {
+        if let Self::UInt8(value) = self {
             Some(*value)
         } else {
             None
@@ -87,12 +86,12 @@ where
 
     #[inline]
     pub fn is_i8(&self) -> bool {
-        matches!(self, MappedValue::SInt8(_))
+        matches!(self, Self::SInt8(_))
     }
 
     #[inline]
     pub fn as_i8(&self) -> Option<i8> {
-        if let MappedValue::SInt8(value) = self {
+        if let Self::SInt8(value) = self {
             Some(*value)
         } else {
             None
@@ -101,12 +100,12 @@ where
 
     #[inline]
     pub fn is_u16(&self) -> bool {
-        matches!(self, MappedValue::UInt16(_))
+        matches!(self, Self::UInt16(_))
     }
 
     #[inline]
     pub fn as_u16(&self) -> Option<u16> {
-        if let MappedValue::UInt16(value) = self {
+        if let Self::UInt16(value) = self {
             Some(*value)
         } else {
             None
@@ -115,12 +114,12 @@ where
 
     #[inline]
     pub fn is_i16(&self) -> bool {
-        matches!(self, MappedValue::SInt16(_))
+        matches!(self, Self::SInt16(_))
     }
 
     #[inline]
     pub fn as_i16(&self) -> Option<i16> {
-        if let MappedValue::SInt16(value) = self {
+        if let Self::SInt16(value) = self {
             Some(*value)
         } else {
             None
@@ -129,12 +128,12 @@ where
 
     #[inline]
     pub fn is_u32(&self) -> bool {
-        matches!(self, MappedValue::UInt32(_))
+        matches!(self, Self::UInt32(_))
     }
 
     #[inline]
     pub fn as_u32(&self) -> Option<u32> {
-        if let MappedValue::UInt32(value) = self {
+        if let Self::UInt32(value) = self {
             Some(*value)
         } else {
             None
@@ -143,12 +142,12 @@ where
 
     #[inline]
     pub fn is_i32(&self) -> bool {
-        matches!(self, MappedValue::SInt32(_))
+        matches!(self, Self::SInt32(_))
     }
 
     #[inline]
     pub fn as_i32(&self) -> Option<i32> {
-        if let MappedValue::SInt32(value) = self {
+        if let Self::SInt32(value) = self {
             Some(*value)
         } else {
             None
@@ -157,12 +156,12 @@ where
 
     #[inline]
     pub fn is_u64(&self) -> bool {
-        matches!(self, MappedValue::UInt64(_))
+        matches!(self, Self::UInt64(_))
     }
 
     #[inline]
     pub fn as_u64(&self) -> Option<u64> {
-        if let MappedValue::UInt64(value) = self {
+        if let Self::UInt64(value) = self {
             Some(*value)
         } else {
             None
@@ -171,12 +170,12 @@ where
 
     #[inline]
     pub fn is_i64(&self) -> bool {
-        matches!(self, MappedValue::SInt64(_))
+        matches!(self, Self::SInt64(_))
     }
 
     #[inline]
     pub fn as_i64(&self) -> Option<i64> {
-        if let MappedValue::SInt64(value) = self {
+        if let Self::SInt64(value) = self {
             Some(*value)
         } else {
             None
@@ -185,12 +184,12 @@ where
 
     #[inline]
     pub fn is_f32(&self) -> bool {
-        matches!(self, MappedValue::Float32(_))
+        matches!(self, Self::Float32(_))
     }
 
     #[inline]
     pub fn as_f32(&self) -> Option<f32> {
-        if let MappedValue::Float32(value) = self {
+        if let Self::Float32(value) = self {
             Some(*value)
         } else {
             None
@@ -199,12 +198,12 @@ where
 
     #[inline]
     pub fn is_f64(&self) -> bool {
-        matches!(self, MappedValue::Float64(_))
+        matches!(self, Self::Float64(_))
     }
 
     #[inline]
     pub fn as_f64(&self) -> Option<f64> {
-        if let MappedValue::Float64(value) = self {
+        if let Self::Float64(value) = self {
             Some(*value)
         } else {
             None
@@ -213,12 +212,12 @@ where
 
     #[inline]
     pub fn is_enum(&self) -> bool {
-        matches!(self, MappedValue::Enum(_))
+        matches!(self, Self::Enum(_))
     }
 
     #[inline]
     pub fn as_enum(&self) -> Option<&MappedEnum<T>> {
-        if let MappedValue::Enum(value) = self {
+        if let Self::Enum(value) = self {
             Some(value)
         } else {
             None
@@ -227,12 +226,12 @@ where
 
     #[inline]
     pub fn is_bitmask8(&self) -> bool {
-        matches!(self, MappedValue::Bitmask8(_))
+        matches!(self, Self::Bitmask8(_))
     }
 
     #[inline]
     pub fn as_bitmask8(&self) -> Option<&MappedBitmask8<T>> {
-        if let MappedValue::Bitmask8(value) = self {
+        if let Self::Bitmask8(value) = self {
             Some(value)
         } else {
             None
@@ -241,12 +240,12 @@ where
 
     #[inline]
     pub fn is_bitmask16(&self) -> bool {
-        matches!(self, MappedValue::Bitmask16(_))
+        matches!(self, Self::Bitmask16(_))
     }
 
     #[inline]
     pub fn as_bitmask16(&self) -> Option<&MappedBitmask16<T>> {
-        if let MappedValue::Bitmask16(value) = self {
+        if let Self::Bitmask16(value) = self {
             Some(value)
         } else {
             None
@@ -255,12 +254,12 @@ where
 
     #[inline]
     pub fn is_bitmask32(&self) -> bool {
-        matches!(self, MappedValue::Bitmask32(_))
+        matches!(self, Self::Bitmask32(_))
     }
 
     #[inline]
     pub fn as_bitmask32(&self) -> Option<&MappedBitmask32<T>> {
-        if let MappedValue::Bitmask32(value) = self {
+        if let Self::Bitmask32(value) = self {
             Some(value)
         } else {
             None
@@ -269,12 +268,12 @@ where
 
     #[inline]
     pub fn is_bitmask64(&self) -> bool {
-        matches!(self, MappedValue::Bitmask64(_))
+        matches!(self, Self::Bitmask64(_))
     }
 
     #[inline]
     pub fn as_bitmask64(&self) -> Option<&MappedBitmask64<T>> {
-        if let MappedValue::Bitmask64(value) = self {
+        if let Self::Bitmask64(value) = self {
             Some(value)
         } else {
             None
@@ -283,12 +282,12 @@ where
 
     #[inline]
     pub fn is_struct(&self) -> bool {
-        matches!(self, MappedValue::Struct(_))
+        matches!(self, Self::Struct(_))
     }
 
     #[inline]
     pub fn as_struct(&self) -> Option<&MappedStruct<D, T>> {
-        if let MappedValue::Struct(value) = self {
+        if let Self::Struct(value) = self {
             Some(value)
         } else {
             None
@@ -297,12 +296,12 @@ where
 
     #[inline]
     pub fn is_array(&self) -> bool {
-        matches!(self, MappedValue::Array(_))
+        matches!(self, Self::Array(_))
     }
 
     #[inline]
     pub fn as_array(&self) -> Option<&MappedArray<D, T>> {
-        if let MappedValue::Array(value) = self {
+        if let Self::Array(value) = self {
             Some(value)
         } else {
             None
@@ -311,12 +310,12 @@ where
 
     #[inline]
     pub fn is_string(&self) -> bool {
-        matches!(self, MappedValue::String(_))
+        matches!(self, Self::String(_))
     }
 
     #[inline]
     pub fn as_string(&self) -> Option<&MappedString<D>> {
-        if let MappedValue::String(value) = self {
+        if let Self::String(value) = self {
             Some(value)
         } else {
             None
@@ -325,12 +324,12 @@ where
 
     #[inline]
     pub fn is_optional(&self) -> bool {
-        matches!(self, MappedValue::Optional(_))
+        matches!(self, Self::Optional(_))
     }
 
     #[inline]
     pub fn as_optional(&self) -> Option<&MappedOptional<D, T>> {
-        if let MappedValue::Optional(value) = self {
+        if let Self::Optional(value) = self {
             Some(value)
         } else {
             None
@@ -339,12 +338,12 @@ where
 
     #[inline]
     pub fn is_variant(&self) -> bool {
-        matches!(self, MappedValue::Variant(_))
+        matches!(self, Self::Variant(_))
     }
 
     #[inline]
     pub fn as_variant(&self) -> Option<&MappedVariant<D, T>> {
-        if let MappedValue::Variant(value) = self {
+        if let Self::Variant(value) = self {
             Some(value)
         } else {
             None
@@ -353,12 +352,12 @@ where
 
     #[inline]
     pub fn is_reference(&self) -> bool {
-        matches!(self, MappedValue::Reference(_))
+        matches!(self, Self::Reference(_))
     }
 
     #[inline]
     pub fn as_reference(&self) -> Option<&MappedReference<T>> {
-        if let MappedValue::Reference(value) = self {
+        if let Self::Reference(value) = self {
             Some(value)
         } else {
             None
@@ -367,12 +366,12 @@ where
 
     #[inline]
     pub fn is_guid(&self) -> bool {
-        matches!(self, MappedValue::Guid(_))
+        matches!(self, Self::Guid(_))
     }
 
     #[inline]
     pub fn as_guid(&self) -> Option<&BlobGuid> {
-        if let MappedValue::Guid(value) = self {
+        if let Self::Guid(value) = self {
             Some(value)
         } else {
             None
@@ -403,7 +402,7 @@ where
         offset: usize,
     ) -> Result<Self, MappingError> {
         let result = match r#type.primitive_type {
-            PrimitiveType::None => MappedValue::None,
+            PrimitiveType::None => Self::None,
             PrimitiveType::Bool => get_bool(data.borrow(), offset)?.into(),
             PrimitiveType::UInt8 => get_u8(data.borrow(), offset)?.into(),
             PrimitiveType::SInt8 => get_i8(data.borrow(), offset)?.into(),
@@ -684,7 +683,7 @@ macro_rules! bitmask {
                 self.value
             }
 
-            pub fn bits(&self) -> Vec<MappedBit> {
+            pub fn bits(&self) -> Vec<MappedBit<'_>> {
                 let mut bits = Vec::with_capacity(self.value.count_ones() as usize);
                 let mut checked_bits = 0;
 

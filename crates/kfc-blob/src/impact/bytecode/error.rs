@@ -41,22 +41,22 @@ pub enum ParseErrorKind {
 impl std::fmt::Display for ParseErrorKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self {
-            ParseErrorKind::DuplicateLabel { label } => {
+            Self::DuplicateLabel { label } => {
                 write!(f, "Duplicate label `{}`", label)
             }
-            ParseErrorKind::UnknownLabel { label } => {
+            Self::UnknownLabel { label } => {
                 write!(f, "Unknown label `{}`", label)
             }
-            ParseErrorKind::Expected { expected, found } => {
+            Self::Expected { expected, found } => {
                 write!(f, "Expected {}, found {}", expected, found)
             }
-            ParseErrorKind::NumberParseError { content, error } => {
+            Self::NumberParseError { content, error } => {
                 write!(f, "Failed to parse number `{}`: {}", content, error)
             }
-            ParseErrorKind::UnknownType { type_name } => {
+            Self::UnknownType { type_name } => {
                 write!(f, "Unknown type `{}`", type_name)
             }
-            ParseErrorKind::UnknownData { name } => {
+            Self::UnknownData { name } => {
                 write!(f, "Unknown data `{}`", name)
             }
         }

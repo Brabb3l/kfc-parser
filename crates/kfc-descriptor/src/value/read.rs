@@ -145,18 +145,18 @@ impl Value {
         T: Borrow<TypeRegistry> + Clone,
     {
         Ok(match value {
-            MappedValue::None => Value::None,
-            MappedValue::Bool(b) => Value::Bool(b),
-            MappedValue::UInt8(v) => Value::UInt(v.into()),
-            MappedValue::SInt8(v) => Value::SInt(v.into()),
-            MappedValue::UInt16(v) => Value::UInt(v.into()),
-            MappedValue::SInt16(v) => Value::SInt(v.into()),
-            MappedValue::UInt32(v) => Value::UInt(v.into()),
-            MappedValue::SInt32(v) => Value::SInt(v.into()),
-            MappedValue::UInt64(v) => Value::UInt(v),
-            MappedValue::SInt64(v) => Value::SInt(v),
-            MappedValue::Float32(v) => Value::Float(v.into()),
-            MappedValue::Float64(v) => Value::Float(v),
+            MappedValue::None => Self::None,
+            MappedValue::Bool(b) => Self::Bool(b),
+            MappedValue::UInt8(v) => Self::UInt(v.into()),
+            MappedValue::SInt8(v) => Self::SInt(v.into()),
+            MappedValue::UInt16(v) => Self::UInt(v.into()),
+            MappedValue::SInt16(v) => Self::SInt(v.into()),
+            MappedValue::UInt32(v) => Self::UInt(v.into()),
+            MappedValue::SInt32(v) => Self::SInt(v.into()),
+            MappedValue::UInt64(v) => Self::UInt(v),
+            MappedValue::SInt64(v) => Self::SInt(v),
+            MappedValue::Float32(v) => Self::Float(v.into()),
+            MappedValue::Float64(v) => Self::Float(v),
             MappedValue::Enum(v) => Self::from_enum(options, v),
             MappedValue::Bitmask8(v) => Self::from_bitmask(v.value().into(), || v.bits(), options),
             MappedValue::Bitmask16(v) => Self::from_bitmask(v.value().into(), || v.bits(), options),
@@ -164,7 +164,7 @@ impl Value {
             MappedValue::Bitmask64(v) => Self::from_bitmask(v.value(), || v.bits(), options),
             MappedValue::Struct(r#struct) => Self::from_struct(r#struct, options)?,
             MappedValue::Array(array) => Self::from_array(array, options)?,
-            MappedValue::String(s) => Value::String(s.as_str()?.to_string()),
+            MappedValue::String(s) => Self::String(s.as_str()?.to_string()),
             MappedValue::Optional(optional) => Self::from_optional(optional, options)?,
             MappedValue::Variant(variant) => Self::from_variant(variant, options)?,
             MappedValue::Guid(guid) => Self::from_guid(guid, options),
@@ -173,43 +173,43 @@ impl Value {
     }
 
     #[inline]
-    fn from_enum<T>(options: &ConversionOptions, r#enum: MappedEnum<T>) -> Value
+    fn from_enum<T>(options: &ConversionOptions, r#enum: MappedEnum<T>) -> Self
     where
         T: Borrow<TypeRegistry> + Clone,
     {
         match options.enum_repr {
-            EnumRepr::Value => Value::UInt(r#enum.value()),
+            EnumRepr::Value => Self::UInt(r#enum.value()),
             EnumRepr::Name => r#enum
                 .name()
                 .map(str::to_string)
                 .map(Value::String)
-                .unwrap_or_else(|| Value::UInt(r#enum.value())),
+                .unwrap_or_else(|| Self::UInt(r#enum.value())),
         }
     }
 
     #[inline]
-    fn from_bitmask<'a, F>(value: u64, bits: F, options: &ConversionOptions) -> Value
+    fn from_bitmask<'a, F>(value: u64, bits: F, options: &ConversionOptions) ->Self
     where
         F: Fn() -> Vec<MappedBit<'a>>,
     {
         match options.bitmask_repr {
-            BitmaskRepr::ArrayValue => Value::Array(
+            BitmaskRepr::ArrayValue => Self::Array(
                 bits()
                     .iter()
-                    .map(|v| Value::UInt(v.value())).collect()
+                    .map(|v| Self::UInt(v.value())).collect()
             ),
-            BitmaskRepr::ArrayName => Value::Array(
+            BitmaskRepr::ArrayName => Self::Array(
                 bits()
                     .iter()
                     .map(|v| {
                         v.name()
                             .map(str::to_string)
-                            .map(Value::String)
-                            .unwrap_or_else(|| Value::UInt(v.value()))
+                            .map(Self::String)
+                            .unwrap_or_else(|| Self::UInt(v.value()))
                     })
                     .collect(),
             ),
-            BitmaskRepr::Value => Value::UInt(value),
+            BitmaskRepr::Value => Self::UInt(value),
         }
     }
 
@@ -217,7 +217,7 @@ impl Value {
     fn from_struct<D, T>(
         r#struct: MappedStruct<D, T>,
         options: &ConversionOptions
-    ) -> Result<Value, MappingError>
+    ) -> Result<Self, MappingError>
     where
         D: Borrow<[u8]> + Clone,
         T: Borrow<TypeRegistry> + Clone,
@@ -229,14 +229,14 @@ impl Value {
             map.insert(name.to_string(), Self::from_impl(value, options)?);
         }
 
-        Ok(Value::Struct(map.into()))
+        Ok(Self::Struct(map.into()))
     }
 
     #[inline]
     fn from_array<D, T>(
         array: MappedArray<D, T>,
         options: &ConversionOptions,
-    ) -> Result<Value, MappingError>
+    ) -> Result<Self, MappingError>
     where
         D: Borrow<[u8]> + Clone,
         T: Borrow<TypeRegistry> + Clone,
@@ -247,35 +247,34 @@ impl Value {
             values.push(Self::from_impl(value?, options)?);
         }
 
-        Ok(Value::Array(values))
+        Ok(Self::Array(values))
     }
 
     #[inline]
     fn from_optional<D, T>(
         optional: MappedOptional<D, T>,
         options: &ConversionOptions,
-    ) -> Result<Value, MappingError>
+    ) -> Result<Self, MappingError>
     where
         D: Borrow<[u8]> + Clone,
         T: Borrow<TypeRegistry> + Clone,
     {
-        match optional.into_value() {
-            Some(value) => Self::from_impl(value, options),
-            None => Ok(Value::None),
-        }
+        optional.into_value()
+            .map(|value| Self::from_impl(value, options))
+            .unwrap_or_else(|| Ok(Self::None))
     }
 
     #[inline]
     fn from_variant<D, T>(
         variant: MappedVariant<D, T>,
         options: &ConversionOptions,
-    ) -> Result<Value, MappingError>
+    ) -> Result<Self, MappingError>
     where
         D: Borrow<[u8]> + Clone,
         T: Borrow<TypeRegistry> + Clone,
     {
         Ok(match variant.into_value() {
-            None => Value::None,
+            None => Self::None,
             Some(variant) => {
                 if !options.variant.as_struct {
                     let type_index = variant.r#type().index;
@@ -283,38 +282,38 @@ impl Value {
                         .into_struct()
                         .expect("Expected variant value to be a struct");
 
-                    Value::Variant(Variant { type_index, value }.into())
+                    Self::Variant(Variant { type_index, value }.into())
                 } else {
                     let mut map = IndexMap::with_capacity(2);
 
                     if options.variant.qualified_type_name {
                         let name = variant.r#type().qualified_name.clone();
-                        map.insert("$type".to_string(), Value::String(name));
+                        map.insert("$type".to_string(), Self::String(name));
                     } else {
                         let type_index = variant.r#type().index.as_usize() as u64;
-                        map.insert("$type".to_string(), Value::UInt(type_index));
+                        map.insert("$type".to_string(), Self::UInt(type_index));
                     }
 
                     let value = Self::from_impl(variant.into(), options)?
                         .into_struct()
                         .expect("Expected variant value to be a struct");
 
-                    map.insert("$value".to_string(), Value::Struct(value.into()));
+                    map.insert("$value".to_string(), Self::Struct(value.into()));
 
-                    Value::Struct(map.into())
+                    Self::Struct(map.into())
                 }
             }
         })
     }
 
     #[inline]
-    fn from_guid(guid: BlobGuid, options: &ConversionOptions) -> Value {
+    fn from_guid(guid: BlobGuid, options: &ConversionOptions) -> Self {
         if guid.is_none() {
-            Value::None
+            Self::None
         } else if options.guid_as_string {
-            Value::String(guid.to_string())
+            Self::String(guid.to_string())
         } else {
-            Value::Guid(guid)
+            Self::Guid(guid)
         }
     }
 }

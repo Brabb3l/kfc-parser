@@ -64,26 +64,32 @@ impl KFCFile {
         Ok(version)
     }
 
+    #[inline]
     pub fn get_descriptor_guids(&self) -> &[DescriptorGuid] {
         self.descriptors.keys()
     }
 
+    #[inline]
     pub fn get_descriptor_link(&self, guid: &DescriptorGuid) -> Option<&DescriptorLink> {
         self.descriptors.get(guid)
     }
 
+    #[inline]
     pub fn get_descriptor_iter(&self) -> impl Iterator<Item = (&DescriptorGuid, &DescriptorLink)> {
         self.descriptors.iter()
     }
 
+    #[inline]
     pub fn get_descriptor_map(&self) -> &StaticMap<DescriptorGuid, DescriptorLink> {
         &self.descriptors
     }
 
+    #[inline]
     pub fn contains_descriptor(&self, guid: &DescriptorGuid) -> bool {
         self.descriptors.contains_key(guid)
     }
 
+    #[inline]
     pub fn get_descriptor_types(&self) -> &[Hash32] {
         self.groups.keys()
     }
@@ -100,38 +106,47 @@ impl KFCFile {
             .map(|&index| &self.descriptors.keys()[index as usize])
     }
 
+    #[inline]
     pub fn get_blob_guids(&self) -> &[BlobGuid] {
         self.blobs.keys()
     }
 
+    #[inline]
     pub fn get_blob_link(&self, guid: &BlobGuid) -> Option<&BlobLink> {
         self.blobs.get(guid)
     }
 
+    #[inline]
     pub fn get_blob_iter(&self) -> impl Iterator<Item = (&BlobGuid, &BlobLink)> {
         self.blobs.iter()
     }
 
+    #[inline]
     pub fn get_blob_map(&self) -> &StaticMap<BlobGuid, BlobLink> {
         &self.blobs
     }
 
+    #[inline]
     pub fn contains_blob(&self, guid: &BlobGuid) -> bool {
         self.blobs.contains_key(guid)
     }
 
+    #[inline]
     pub fn game_version(&self) -> &str {
         &self.version
     }
 
+    #[inline]
     pub fn data_offset(&self) -> u64 {
         self.descriptor_locations[0].offset
     }
 
+    #[inline]
     pub fn data_size(&self) -> u64 {
         self.descriptor_locations[0].size
     }
 
+    #[inline]
     pub fn get_dat_infos(&self) -> &[DatInfo] {
         &self.dat_infos
     }
