@@ -401,168 +401,271 @@ where
         data: &D,
         offset: usize,
     ) -> Result<Self, MappingError> {
-        let result = match r#type.primitive_type {
-            PrimitiveType::None => Self::None,
-            PrimitiveType::Bool => get_bool(data.borrow(), offset)?.into(),
-            PrimitiveType::UInt8 => get_u8(data.borrow(), offset)?.into(),
-            PrimitiveType::SInt8 => get_i8(data.borrow(), offset)?.into(),
-            PrimitiveType::UInt16 => get_u16(data.borrow(), offset)?.into(),
-            PrimitiveType::SInt16 => get_i16(data.borrow(), offset)?.into(),
-            PrimitiveType::UInt32 => get_u32(data.borrow(), offset)?.into(),
-            PrimitiveType::SInt32 => get_i32(data.borrow(), offset)?.into(),
-            PrimitiveType::UInt64 => get_u64(data.borrow(), offset)?.into(),
-            PrimitiveType::SInt64 => get_i64(data.borrow(), offset)?.into(),
-            PrimitiveType::Float32 => get_f32(data.borrow(), offset)?.into(),
-            PrimitiveType::Float64 => get_f64(data.borrow(), offset)?.into(),
-            PrimitiveType::Enum => {
-                let enum_value_type = get_inner_type(r#type)?;
-                let enum_value = match enum_value_type.primitive_type {
-                    PrimitiveType::UInt8 => get_u8(data.borrow(), offset)? as u64,
-                    PrimitiveType::SInt8 => get_i8(data.borrow(), offset)? as u64,
-                    PrimitiveType::UInt16 => get_u16(data.borrow(), offset)? as u64,
-                    PrimitiveType::SInt16 => get_i16(data.borrow(), offset)? as u64,
-                    PrimitiveType::UInt32 => get_u32(data.borrow(), offset)? as u64,
-                    PrimitiveType::SInt32 => get_i32(data.borrow(), offset)? as u64,
-                    PrimitiveType::UInt64 => get_u64(data.borrow(), offset)?,
-                    PrimitiveType::SInt64 => get_i64(data.borrow(), offset)? as u64,
-                    _ => panic!("Invalid enum value type: {:?}", enum_value_type.primitive_type),
-                };
+        match r#type.primitive_type {
+            PrimitiveType::None => Ok(Self::None),
+            PrimitiveType::Bool => Ok(get_bool(data.borrow(), offset)?.into()),
+            PrimitiveType::UInt8 => Ok(get_u8(data.borrow(), offset)?.into()),
+            PrimitiveType::SInt8 => Ok(get_i8(data.borrow(), offset)?.into()),
+            PrimitiveType::UInt16 => Ok(get_u16(data.borrow(), offset)?.into()),
+            PrimitiveType::SInt16 => Ok(get_i16(data.borrow(), offset)?.into()),
+            PrimitiveType::UInt32 => Ok(get_u32(data.borrow(), offset)?.into()),
+            PrimitiveType::SInt32 => Ok(get_i32(data.borrow(), offset)?.into()),
+            PrimitiveType::UInt64 => Ok(get_u64(data.borrow(), offset)?.into()),
+            PrimitiveType::SInt64 => Ok(get_i64(data.borrow(), offset)?.into()),
+            PrimitiveType::Float32 => Ok(get_f32(data.borrow(), offset)?.into()),
+            PrimitiveType::Float64 => Ok(get_f64(data.borrow(), offset)?.into()),
+            PrimitiveType::Enum => Self::from_enum(r#type, data, offset),
+            PrimitiveType::Bitmask8 => Self::from_bitmask8(r#type, data, offset),
+            PrimitiveType::Bitmask16 => Self::from_bitmask16(r#type, data, offset),
+            PrimitiveType::Bitmask32 => Self::from_bitmask32(r#type, data, offset),
+            PrimitiveType::Bitmask64 => Self::from_bitmask64(r#type, data, offset),
+            PrimitiveType::Typedef => Self::from_typedef(r#type, data, offset),
+            PrimitiveType::Struct => Self::from_struct(r#type, data, offset),
+            PrimitiveType::StaticArray => Self::from_static_array(r#type, data, offset),
+            PrimitiveType::DsArray => Err(MappingError::UnsupportedOperation("DsArrays are not supported yet")),
+            PrimitiveType::DsString => Err(MappingError::UnsupportedOperation("DsStrings are not supported yet")),
+            PrimitiveType::DsOptional => Err(MappingError::UnsupportedOperation("DsOptionals are not supported yet")),
+            PrimitiveType::DsVariant => Err(MappingError::UnsupportedOperation("DsVariants are not supported yet")),
+            PrimitiveType::BlobArray => Self::from_blob_array(r#type, data, offset),
+            PrimitiveType::BlobString => Self::from_blob_string(data, offset),
+            PrimitiveType::BlobOptional => Self::from_blob_optional(r#type, data, offset),
+            PrimitiveType::BlobVariant => Self::from_blob_variant(r#type, data, offset),
+            PrimitiveType::ObjectReference => Self::from_object_reference(r#type, data, offset),
+            PrimitiveType::Guid => Self::from_guid(data, offset),
+        }
+    }
 
-                MappedEnum::new(r#type.clone(), enum_value).into()
-            },
-            PrimitiveType::Bitmask8 => MappedBitmask8::new(
-                r#type.clone(),
-                get_u8(data.borrow(), offset)?
-            ).into(),
-            PrimitiveType::Bitmask16 => MappedBitmask16::new(
-                r#type.clone(),
-                get_u16(data.borrow(), offset)?
-            ).into(),
-            PrimitiveType::Bitmask32 => MappedBitmask32::new(
-                r#type.clone(),
-                get_u32(data.borrow(), offset)?
-            ).into(),
-            PrimitiveType::Bitmask64 => MappedBitmask64::new(
-                r#type.clone(),
-                get_u64(data.borrow(), offset)?
-            ).into(),
-            PrimitiveType::Typedef => {
-                let inner_type = get_inner_type(r#type)?;
-                Self::from_impl(&inner_type, data, offset)?
-            }
-            PrimitiveType::Struct => MappedStruct::new(
-                r#type.clone(),
-                data.clone(),
-                offset
-            ).into(),
-            PrimitiveType::StaticArray => MappedArray::new(
-                r#type.clone(),
-                data.clone(),
-                offset,
-                r#type.field_count as usize
-            )?.into(),
-            PrimitiveType::DsArray => return Err(MappingError::UnsupportedOperation("DsArrays are not supported yet")),
-            PrimitiveType::DsString => return Err(MappingError::UnsupportedOperation("DsStrings are not supported yet")),
-            PrimitiveType::DsOptional => return Err(MappingError::UnsupportedOperation("DsOptionals are not supported yet")),
-            PrimitiveType::DsVariant => return Err(MappingError::UnsupportedOperation("DsVariants are not supported yet")),
-            PrimitiveType::BlobArray => {
-                let blob_offset = get_u32(data.borrow(), offset)? as usize;
-                let count = get_u32(data.borrow(), offset + 4)? as usize;
-
-                MappedArray::new(
-                    r#type.clone(),
-                    data.clone(),
-                    offset + blob_offset,
-                    count
-                )?.into()
-            }
-            PrimitiveType::BlobString => {
-                let blob_offset = get_u32(data.borrow(), offset)? as usize;
-
-                if blob_offset == 0 {
-                    return Ok(MappedString::new(
-                        data.clone(),
-                        0,
-                        0
-                    )?.into());
-                }
-
-                let blob_size = get_u32(data.borrow(), offset + 4)? as usize;
-
-                MappedString::new(
-                    data.clone(),
-                    offset + blob_offset,
-                    blob_size,
-                )?.into()
-            }
-            PrimitiveType::BlobOptional => {
-                let inner_type = match get_inner_type_opt(r#type) {
-                    Some(t) => t,
-                    None => return Ok(MappedOptional::new(
-                        r#type.clone(),
-                        None
-                    ).into()),
-                };
-                let blob_offset = get_u32(data.borrow(), offset)? as usize;
-
-                if blob_offset == 0 {
-                    return Ok(MappedOptional::new(
-                        r#type.clone(),
-                        None
-                    ).into());
-                }
-
-                MappedOptional::new(
-                    r#type.clone(),
-                    Some(Self::from_impl(
-                        &inner_type,
-                        data,
-                        offset + blob_offset
-                    )?)
-                ).into()
-            }
-            PrimitiveType::BlobVariant => {
-                let variant_hash = get_u32(data.borrow(), offset)?;
-                let blob_offset = get_u32(data.borrow(), offset + 4)? as usize;
-                // let size = get_u32(data, 8)? as usize;
-
-                if blob_offset == 0 {
-                    return Ok(MappedVariant::new(
-                        r#type.clone(),
-                        None
-                    ).into());
-                }
-
-                let variant_type = r#type.type_registry().borrow()
-                    .get_by_hash(LookupKey::Qualified(variant_hash))
-                    .map(|t| t.index)
-                    .ok_or(MappingError::InvalidTypeHash(variant_hash))?;
-                let variant_type = TypeHandle::new(
-                    r#type.type_registry().clone(),
-                    variant_type
-                );
-
-                MappedVariant::new(
-                    r#type.clone(),
-                    Some(MappedStruct::new(
-                        variant_type,
-                        data.clone(),
-                        offset + blob_offset + 4
-                    )),
-                ).into()
-            }
-            PrimitiveType::ObjectReference => MappedReference::new(
-                r#type.clone(),
-                BlobGuid::new(
-                    get_bytes(data.borrow(), offset, 16)?.try_into().unwrap()
-                ),
-            ).into(),
-            PrimitiveType::Guid => BlobGuid::new(
-                get_bytes(data.borrow(), offset, 16)?.try_into().unwrap()
-            ).into(),
+    #[inline]
+    fn from_enum(
+        r#type: &TypeHandle<T>,
+        data: &D,
+        offset: usize,
+    ) -> Result<Self, MappingError> {
+        let enum_value_type = get_inner_type(r#type)?;
+        let enum_value = match enum_value_type.primitive_type {
+            PrimitiveType::UInt8 => get_u8(data.borrow(), offset)? as u64,
+            PrimitiveType::SInt8 => get_i8(data.borrow(), offset)? as u64,
+            PrimitiveType::UInt16 => get_u16(data.borrow(), offset)? as u64,
+            PrimitiveType::SInt16 => get_i16(data.borrow(), offset)? as u64,
+            PrimitiveType::UInt32 => get_u32(data.borrow(), offset)? as u64,
+            PrimitiveType::SInt32 => get_i32(data.borrow(), offset)? as u64,
+            PrimitiveType::UInt64 => get_u64(data.borrow(), offset)?,
+            PrimitiveType::SInt64 => get_i64(data.borrow(), offset)? as u64,
+            _ => panic!("Invalid enum value type: {:?}", enum_value_type.primitive_type),
         };
 
-        Ok(result)
+        Ok(MappedEnum::new(r#type.clone(), enum_value).into())
+    }
+
+    #[inline]
+    fn from_bitmask8(
+        r#type: &TypeHandle<T>,
+        data: &D,
+        offset: usize,
+    ) -> Result<Self, MappingError> {
+        let value = get_u8(data.borrow(), offset)?;
+        Ok(MappedBitmask8::new(r#type.clone(), value).into())
+    }
+
+    #[inline]
+    fn from_bitmask16(
+        r#type: &TypeHandle<T>,
+        data: &D,
+        offset: usize,
+    ) -> Result<Self, MappingError> {
+        let value = get_u16(data.borrow(), offset)?;
+        Ok(MappedBitmask16::new(r#type.clone(), value).into())
+    }
+
+    #[inline]
+    fn from_bitmask32(
+        r#type: &TypeHandle<T>,
+        data: &D,
+        offset: usize,
+    ) -> Result<Self, MappingError> {
+        let value = get_u32(data.borrow(), offset)?;
+        Ok(MappedBitmask32::new(r#type.clone(), value).into())
+    }
+
+    #[inline]
+    fn from_bitmask64(
+        r#type: &TypeHandle<T>,
+        data: &D,
+        offset: usize,
+    ) -> Result<Self, MappingError> {
+        let value = get_u64(data.borrow(), offset)?;
+        Ok(MappedBitmask64::new(r#type.clone(), value).into())
+    }
+
+    #[inline]
+    fn from_typedef(
+        r#type: &TypeHandle<T>,
+        data: &D,
+        offset: usize,
+    ) -> Result<Self, MappingError> {
+        let inner_type = get_inner_type(r#type)?;
+        Self::from_impl(&inner_type, data, offset)
+    }
+
+    #[inline]
+    fn from_struct(
+        r#type: &TypeHandle<T>,
+        data: &D,
+        offset: usize,
+    ) -> Result<Self, MappingError> {
+        Ok(MappedStruct::new(
+            r#type.clone(),
+            data.clone(),
+            offset
+        ).into())
+    }
+
+    #[inline]
+    fn from_static_array(
+        r#type: &TypeHandle<T>,
+        data: &D,
+        offset: usize,
+    ) -> Result<Self, MappingError> {
+        Ok(MappedArray::new(
+            r#type.clone(),
+            data.clone(),
+            offset,
+            r#type.field_count as usize
+        )?.into())
+    }
+
+    #[inline]
+    fn from_blob_array(
+        r#type: &TypeHandle<T>,
+        data: &D,
+        offset: usize,
+    ) -> Result<Self, MappingError> {
+        let blob_offset = get_u32(data.borrow(), offset)? as usize;
+        let count = get_u32(data.borrow(), offset + 4)? as usize;
+
+        Ok(MappedArray::new(
+            r#type.clone(),
+            data.clone(),
+            offset + blob_offset,
+            count
+        )?.into())
+    }
+
+    #[inline]
+    fn from_blob_string(
+        data: &D,
+        offset: usize,
+    ) -> Result<Self, MappingError> {
+        let blob_offset = get_u32(data.borrow(), offset)? as usize;
+
+        if blob_offset == 0 {
+            return Ok(MappedString::new(
+                data.clone(),
+                0,
+                0
+            )?.into());
+        }
+
+        let blob_size = get_u32(data.borrow(), offset + 4)? as usize;
+
+        Ok(MappedString::new(
+            data.clone(),
+            offset + blob_offset,
+            blob_size,
+        )?.into())
+    }
+
+    #[inline]
+    fn from_blob_optional(
+        r#type: &TypeHandle<T>,
+        data: &D,
+        offset: usize,
+    ) -> Result<Self, MappingError> {
+        let inner_type = match get_inner_type_opt(r#type) {
+            Some(t) => t,
+            None => return Ok(MappedOptional::new(
+                r#type.clone(),
+                None
+            ).into()),
+        };
+        let blob_offset = get_u32(data.borrow(), offset)? as usize;
+
+        if blob_offset == 0 {
+            return Ok(MappedOptional::new(
+                r#type.clone(),
+                None
+            ).into());
+        }
+
+        Ok(MappedOptional::new(
+            r#type.clone(),
+            Some(Self::from_impl(
+                &inner_type,
+                data,
+                offset + blob_offset
+            )?)
+        ).into())
+    }
+
+    #[inline]
+    fn from_blob_variant(
+        r#type: &TypeHandle<T>,
+        data: &D,
+        offset: usize,
+    ) -> Result<Self, MappingError> {
+        let variant_hash = get_u32(data.borrow(), offset)?;
+        let blob_offset = get_u32(data.borrow(), offset + 4)? as usize;
+        // let size = get_u32(data, 8)? as usize;
+
+        if blob_offset == 0 {
+            return Ok(MappedVariant::new(
+                r#type.clone(),
+                None
+            ).into());
+        }
+
+        let variant_type = r#type.type_registry().borrow()
+            .get_by_hash(LookupKey::Qualified(variant_hash))
+            .map(|t| t.index)
+            .ok_or(MappingError::InvalidTypeHash(variant_hash))?;
+        let variant_type = TypeHandle::new(
+            r#type.type_registry().clone(),
+            variant_type
+        );
+
+        Ok(MappedVariant::new(
+            r#type.clone(),
+            Some(MappedStruct::new(
+                variant_type,
+                data.clone(),
+                offset + blob_offset + 4
+            )),
+        ).into())
+    }
+
+    #[inline]
+    fn from_object_reference(
+        r#type: &TypeHandle<T>,
+        data: &D,
+        offset: usize,
+    ) -> Result<Self, MappingError> {
+        let data = get_bytes(data.borrow(), offset, 16)?.try_into().unwrap();
+
+        Ok(MappedReference::new(
+            r#type.clone(),
+            BlobGuid::new(data),
+        ).into())
+    }
+
+    #[inline]
+    fn from_guid(
+        data: &D,
+        offset: usize,
+    ) -> Result<Self, MappingError> {
+        let bytes = get_bytes(data.borrow(), offset, 16)?;
+        let guid = BlobGuid::new(bytes.try_into().unwrap());
+
+        Ok(guid.into())
     }
 
 }
