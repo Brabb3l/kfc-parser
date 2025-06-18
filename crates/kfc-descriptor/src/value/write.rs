@@ -2,7 +2,6 @@ use std::{
     fmt::Display,
     io::{Cursor, Seek, SeekFrom, Write},
     ops::{Deref, DerefMut},
-    str::FromStr,
 };
 
 use indexmap::IndexMap;
@@ -963,8 +962,8 @@ impl Value {
             value.write(writer.deref_mut())?;
             return Ok(());
         } else if let Some(value) = self.as_string() {
-            BlobGuid::from_str(value)
-                .map_err(WriteErrorInfo::MalformedGuid)?
+            BlobGuid::parse(value)
+                .ok_or_else(|| WriteErrorInfo::MalformedGuid(value.clone()))?
                 .write(writer.deref_mut())?;
 
             return Ok(());

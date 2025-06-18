@@ -553,11 +553,11 @@ where
             }
             PrimitiveType::ObjectReference => MappedReference::new(
                 r#type.clone(),
-                BlobGuid::from_bytes(
+                BlobGuid::new(
                     get_bytes(data.borrow(), offset, 16)?.try_into().unwrap()
                 ),
             ).into(),
-            PrimitiveType::Guid => BlobGuid::from_bytes(
+            PrimitiveType::Guid => BlobGuid::new(
                 get_bytes(data.borrow(), offset, 16)?.try_into().unwrap()
             ).into(),
         };

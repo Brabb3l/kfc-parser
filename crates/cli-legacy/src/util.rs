@@ -52,7 +52,7 @@ pub fn serialize_descriptor_into(
 
         let r#type = type_registry.get_by_name(LookupKey::Qualified(type_name))
             .ok_or_else(|| anyhow::anyhow!("Invalid type: {}", type_name))?;
-        let guid = DescriptorGuid::from_str(
+        let guid = DescriptorGuid::parse(
             guid,
             r#type.qualified_hash,
             part

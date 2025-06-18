@@ -89,7 +89,7 @@ where
         bytes: &[u8]
     ) -> std::io::Result<()> {
         let offset = self.data_writer.stream_position()? + self.default_data_size;
-        self.descriptors.insert(guid.clone(), DescriptorLink {
+        self.descriptors.insert(*guid, DescriptorLink {
             offset,
             size: bytes.len() as u64
         });
@@ -115,7 +115,7 @@ where
         dat_writer.write_all(data)?;
         dat_writer.align(4096)?;
 
-        self.blobs.insert(guid.clone(), BlobLink::new(offset, 0, dat_index));
+        self.blobs.insert(*guid, BlobLink::new(offset, 0, dat_index));
 
         Ok(())
     }

@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use clap::Parser;
 use colored::Colorize;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -168,7 +170,7 @@ fn unpack(
         } else if let Some(ty) = entry.strip_prefix('t') {
             filters.push(Filter::ByType(ty));
         } else {
-            match DescriptorGuid::from_qualified_str(entry) {
+            match DescriptorGuid::parse_qualified(entry) {
                 Some(guid) => filters.push(Filter::ByGuid(guid)),
                 None => fatal!("`{}` is not a valid guid", entry),
             }
@@ -1062,7 +1064,7 @@ fn assemble_impact(
         .or_else(|| output_file.map(|f| f.file_stem().unwrap().to_str().unwrap()))
         .unwrap_or(file_name);
 
-    let guid = match DescriptorGuid::from_qualified_str(guid_str) {
+    let guid = match DescriptorGuid::parse_qualified(guid_str) {
         Some(guid) => guid,
         None => {
             if let Some(guid) = guid {
