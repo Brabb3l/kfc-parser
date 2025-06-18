@@ -1,17 +1,17 @@
 use std::collections::HashMap;
 
-use kfc::hash::{fnv, fnv_const};
+use kfc::hash::fnv;
 use kfc::reflection::{LookupKey, TypeFlags, TypeMetadata};
 use kfc::{reflection::TypeRegistry, Hash32};
 
 pub const IMPACT_NODE: &str = "keen::impact_nodes::ImpactNode";
-pub const IMPACT_NODE_HASH: u32 = fnv_const(IMPACT_NODE);
+pub const IMPACT_NODE_HASH: u32 = fnv(IMPACT_NODE);
 
 pub const IMPACT_NODE_EXECUTION: &str = "$ImpactNodeExecution";
-pub const IMPACT_NODE_EXECUTION_HASH: u32 = fnv_const(IMPACT_NODE_EXECUTION);
+pub const IMPACT_NODE_EXECUTION_HASH: u32 = fnv(IMPACT_NODE_EXECUTION);
 
 pub const IMPACT_NODE_EXECUTION_BRANCH: &str = "keen::impact_nodes::ImpactNodeExecutionBranch";
-pub const IMPACT_NODE_EXECUTION_BRANCH_HASH: u32 = fnv_const(IMPACT_NODE_EXECUTION_BRANCH);
+pub const IMPACT_NODE_EXECUTION_BRANCH_HASH: u32 = fnv(IMPACT_NODE_EXECUTION_BRANCH);
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]

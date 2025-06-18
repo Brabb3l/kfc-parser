@@ -161,7 +161,7 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
             TokenKind::Number => self.parse_number(),
             TokenKind::Identifier => {
                 let name = self.expect(TokenKind::Identifier)?;
-                let hash = fnv(name.content.as_bytes());
+                let hash = fnv(name.content);
 
                 if !self.nodes.contains_key(&hash) {
                     return Err(ParseError {

@@ -1,41 +1,3 @@
-pub fn fnv<T: AsRef<[u8]>>(input: T) -> u32 {
-    let mut hash = 0x811c9dc5_u32;
-
-    for byte in input.as_ref().iter() {
-        hash ^= *byte as u32;
-        hash = hash.wrapping_mul(0x1000193);
-    }
-
-    hash
-}
-
-pub fn fnv_with_seed<T: AsRef<[u8]>>(input: T, seed: u32) -> u32 {
-    let mut hash = seed;
-
-    for byte in input.as_ref().iter() {
-        hash ^= *byte as u32;
-        hash = hash.wrapping_mul(0x1000193);
-    }
-
-    hash
-}
-
-pub const fn fnv_const(input: &str) -> u32 {
-    fnv_const_iter(input.as_bytes(), 0, 0x811c9dc5)
-}
-
-const fn fnv_const_iter(input: &[u8], index: usize, hash: u32) -> u32 {
-    if index == input.len() {
-        hash
-    } else {
-        fnv_const_iter(
-            input,
-            index + 1,
-            (hash ^ input[index] as u32).wrapping_mul(0x1000193)
-        )
-    }
-}
-
 const INITIAL_STATE_1: [u8; 16] = [
     0x00, 0x01, 0x02, 0x03,
     0x04, 0x05, 0x06, 0x07,
@@ -74,6 +36,7 @@ fn get_block(data: &[u8], offset: usize) -> &[u8; 16] {
     data[offset..offset + 16].try_into().unwrap()
 }
 
+#[must_use]
 pub fn compute_blob_guid(
     data: &[u8],
     seed: u64,

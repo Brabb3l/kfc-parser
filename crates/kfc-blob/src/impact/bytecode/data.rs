@@ -126,7 +126,7 @@ impl ImpactProgramData {
         for entry in self.data.into_iter() {
             let dbg_name = entry.name;
             let config_id = HashKey32::from(entry.config_id);
-            let name = HashKey32::from(fnv(dbg_name.as_bytes()));
+            let name = HashKey32::from(fnv(&dbg_name));
 
             let type_info = type_collection
                 .get_by_name(LookupKey::Qualified(&entry.r#type))
@@ -134,7 +134,7 @@ impl ImpactProgramData {
             let r#type = HashKey32::from(type_info.impact_hash);
 
             if let Some(mapping) = entry.parent {
-                let parent_hash = fnv(mapping.parent_name.as_bytes());
+                let parent_hash = fnv(&mapping.parent_name);
                 let parent_entry = data_layout.iter()
                     .find(|x| x.name.value == parent_hash)
                     .ok_or_else(|| anyhow::anyhow!("Parent not found: {}", mapping.parent_name))?;
