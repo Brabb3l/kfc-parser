@@ -312,3 +312,33 @@ impl Display for Value {
         }
     }
 }
+
+
+macro_rules! impl_into {
+    ($type:ty, $variant:ident) => {
+        impl From<$type> for Value {
+            fn from(value: $type) -> Self {
+                Self::$variant(value.into())
+            }
+        }
+    };
+}
+
+impl_into!(bool, Bool);
+impl_into!(u8, UInt);
+impl_into!(i8, SInt);
+impl_into!(u16, UInt);
+impl_into!(i16, SInt);
+impl_into!(u32, UInt);
+impl_into!(i32, SInt);
+impl_into!(u64, UInt);
+impl_into!(i64, SInt);
+impl_into!(f32, Float);
+impl_into!(f64, Float);
+impl_into!(String, String);
+impl_into!(Struct, Struct);
+impl_into!(Box<Struct>, Struct);
+impl_into!(Vec<Value>, Array);
+impl_into!(Variant, Variant);
+impl_into!(Box<Variant>, Variant);
+impl_into!(BlobGuid, Guid);
