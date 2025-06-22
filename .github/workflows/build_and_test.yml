@@ -11,7 +11,7 @@ jobs:
     strategy:
       matrix:
         binary:
-          - name: kfc-parser
+          - name: cli-legacy
             os: windows-latest
             target: x86_64-pc-windows-msvc
             output: kfc-parser.exe
