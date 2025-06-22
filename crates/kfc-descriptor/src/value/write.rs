@@ -599,8 +599,6 @@ impl Value {
         }
 
         for field in r#type.struct_fields.values() {
-            writer.path.push(&field.name);
-
             let field_value = fields
                 .get(&field.name)
                 .ok_or_else(|| WriteErrorInfo::MissingField(field.name.clone()))?;
@@ -610,8 +608,8 @@ impl Value {
                 .get(field.r#type)
                 .expect("invalid field type");
 
+            writer.path.push(&field.name);
             field_value.write_internal(field_type, writer, base_offset + field.data_offset)?;
-
             writer.path.pop();
         }
 
