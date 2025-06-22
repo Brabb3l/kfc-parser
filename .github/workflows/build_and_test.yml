@@ -15,6 +15,7 @@ jobs:
             os: windows-latest
             target: x86_64-pc-windows-msvc
             output: kfc-parser.exe
+            test: true
         profile:
           - dev
           - release
