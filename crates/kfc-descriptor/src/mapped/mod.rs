@@ -441,7 +441,7 @@ where
         data: &D,
         offset: usize,
     ) -> Result<Self, MappingError> {
-        let enum_value_type = get_inner_type(r#type)?;
+        let enum_value_type = get_inner_type(r#type);
         let enum_value = match enum_value_type.primitive_type {
             PrimitiveType::UInt8 => get_u8(data.borrow(), offset)? as u64,
             PrimitiveType::SInt8 => get_i8(data.borrow(), offset)? as u64,
@@ -503,7 +503,7 @@ where
         data: &D,
         offset: usize,
     ) -> Result<Self, MappingError> {
-        let inner_type = get_inner_type(r#type)?;
+        let inner_type = get_inner_type(r#type);
         Self::from_impl(&inner_type, data, offset)
     }
 
@@ -531,7 +531,7 @@ where
             data.clone(),
             offset,
             r#type.field_count as usize
-        )?.into())
+        ).into())
     }
 
     #[inline]
@@ -548,7 +548,7 @@ where
             data.clone(),
             offset + blob_offset,
             count
-        )?.into())
+        ).into())
     }
 
     #[inline]
@@ -1027,16 +1027,16 @@ where
         data: D,
         offset: usize,
         length: usize,
-    ) -> Result<Self, MappingError> {
-        let element_type = get_inner_type(&r#type)?;
+    ) -> Self {
+        let element_type = get_inner_type(&r#type);
 
-        Ok(Self {
+        Self {
             r#type,
             element_type,
             data,
             offset,
             length,
-        })
+        }
     }
 
     #[inline]

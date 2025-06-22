@@ -12,8 +12,6 @@ pub enum MappingError {
     InvalidTypeIndex(TypeIndex),
     #[error("invalid type hash: {0}")]
     InvalidTypeHash(u32),
-    #[error("missing inner type for type: {0}")]
-    MissingInnerType(String),
     #[error("{0}")]
     UnsupportedOperation(&'static str),
 }

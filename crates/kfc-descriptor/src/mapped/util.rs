@@ -7,13 +7,13 @@ use super::{TypeHandle, MappingError};
 #[inline]
 pub fn get_inner_type<T>(
     r#type: &TypeHandle<T>
-) -> Result<TypeHandle<T>, MappingError>
+) -> TypeHandle<T>
 where
     T: Borrow<TypeRegistry> + Clone,
 {
     r#type.inner_type()
         .map(|t| t.unwrap_typedef())
-        .ok_or_else(|| MappingError::MissingInnerType(r#type.qualified_name.clone()))
+        .expect("invalid type handle: inner type is None")
 }
 
 #[inline]
