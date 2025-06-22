@@ -764,6 +764,7 @@ macro_rules! bitmask {
         #[derive(Debug, Clone)]
         pub struct $name<T> {
             r#type: TypeHandle<T>,
+            bit_type: TypeHandle<T>,
             value: $type,
         }
 
@@ -773,12 +774,23 @@ macro_rules! bitmask {
         {
             #[inline]
             fn new(r#type: TypeHandle<T>, value: $type) -> Self {
-                Self { r#type, value }
+                let bit_type = get_inner_type(&r#type);
+
+                Self {
+                    r#type,
+                    bit_type,
+                    value,
+                }
             }
 
             #[inline]
             pub fn r#type(&self) -> &TypeHandle<T> {
                 &self.r#type
+            }
+
+            #[inline]
+            pub fn bit_type(&self) -> &TypeHandle<T> {
+                &self.bit_type
             }
 
             #[inline]
@@ -790,7 +802,7 @@ macro_rules! bitmask {
                 let mut bits = Vec::with_capacity(self.value.count_ones() as usize);
                 let mut checked_bits = 0;
 
-                for enum_field in self.r#type.enum_fields.values() {
+                for enum_field in self.bit_type.enum_fields.values() {
                     let enum_value = enum_field.value;
                     let enum_name = &enum_field.name;
 
