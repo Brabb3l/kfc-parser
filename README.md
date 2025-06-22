@@ -10,4 +10,4 @@ Parser for unpacking and repacking Enshrouded game files.
 
 ## Usage
 
-- `kfc-parser.exe` Refer to the [CLI documentation](cli-legacy/README.md) for usage instructions.
+- `kfc-parser.exe` Refer to the [CLI documentation](crates/cli-legacy/README.md) for usage instructions.
