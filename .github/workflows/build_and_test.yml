@@ -16,7 +16,7 @@ jobs:
             target: x86_64-pc-windows-msvc
             output: kfc-parser.exe
         profile:
-          - debug
+          - dev
           - release
 
     runs-on: ${{ matrix.binary.os }}
