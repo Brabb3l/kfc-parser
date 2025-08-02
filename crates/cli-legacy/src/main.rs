@@ -520,6 +520,10 @@ fn repack(
     if kfc_path_bak.exists() && !validate_backup(&kfc_path, &kfc_path_bak)? {
         warn!("Backup file is not valid, deleting it...");
 
+        if !kfc_path_bak.is_file() {
+            fatal!("Backup path is not a file, please remove it manually: {}", kfc_path_bak.display())
+        }
+
         if let Err(e) = std::fs::remove_file(&kfc_path_bak) {
             fatal!("Failed to delete backup file: {}", e);
         }
