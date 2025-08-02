@@ -1,6 +1,6 @@
-use std::borrow::Borrow;
+use std::{borrow::Borrow, ops::Deref};
 
-use kfc::{guid::BlobGuid, reflection::{LookupKey, PrimitiveType, TypeMetadata, TypeRegistry}};
+use kfc::{guid::BlobGuid, reflection::{LookupKey, PrimitiveType, StructFieldMetadata, TypeMetadata, TypeRegistry}};
 
 mod error;
 mod util;
@@ -939,11 +939,30 @@ where
         &self.data
     }
 
-    pub fn get(
+    pub fn get_field_type(
         &self,
         field_name: &str
-    ) -> Result<Option<MappedValue<D, T>>, MappingError> {
-        let mut r#type = self.r#type.clone();
+    ) -> Result<Option<TypeHandle<T>>, MappingError> {
+        let field = match self.get_field_metadata(field_name) {
+            Some(value) => value,
+            None => return Ok(None),
+        };
+
+        let type_registry = self.r#type.type_registry().clone();
+        let field_type = match TypeHandle::try_new(type_registry, field.r#type) {
+            Some(t) => t,
+            None => return Err(MappingError::InvalidTypeIndex(field.r#type)),
+        };
+
+        Ok(Some(field_type))
+    }
+
+    pub fn get_field_metadata(
+        &self,
+        field_name: &str
+    ) -> Option<&StructFieldMetadata> {
+        let type_registry = self.r#type.type_registry().borrow();
+        let mut r#type = self.r#type.deref();
         let mut field;
 
         loop {
@@ -953,20 +972,30 @@ where
                 break;
             }
 
-            match get_inner_type_opt(&r#type) {
+            match type_registry.get_inner_type(r#type) {
                 Some(parent_type) => r#type = parent_type,
-                None => return Ok(None),
+                None => return None,
             }
         }
 
-        // The loop above guarantees that `field` is Some
-        let field = field.unwrap();
-        let type_registry = self.r#type.type_registry().clone();
+        field
+    }
 
+    pub fn get(
+        &self,
+        field_name: &str
+    ) -> Result<Option<MappedValue<D, T>>, MappingError> {
+        let field = match self.get_field_metadata(field_name) {
+            Some(value) => value,
+            None => return Ok(None),
+        };
+
+        let type_registry = self.r#type.type_registry().clone();
         let field_type = match TypeHandle::try_new(type_registry, field.r#type) {
             Some(t) => t,
             None => return Err(MappingError::InvalidTypeIndex(field.r#type)),
         };
+
         let field_offset = field.data_offset as usize;
         let field_value = MappedValue::from_impl(
             &field_type,

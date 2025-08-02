@@ -196,3 +196,11 @@ impl PrimitiveType {
         }
     }
 }
+
+impl PartialEq for TypeMetadata {
+    fn eq(&self, other: &Self) -> bool {
+        self.index == other.index && self.qualified_name == other.qualified_name
+    }
+}
+
+impl Eq for TypeMetadata {}
