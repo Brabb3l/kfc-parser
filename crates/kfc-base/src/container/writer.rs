@@ -6,21 +6,25 @@ use super::{header::{BlobLink, DatInfo, DescriptorLink}, KFCFile, KFCReadError, 
 
 pub struct KFCWriter<F, T> {
     path: PathBuf,
-    reference_file: F,
     type_registry: T,
 
+    file: File,
+    data_writer: Cursor<Vec<u8>>,
+    dat_writers: Vec<DatWriter>,
+
+    game_version: String,
     descriptors: StaticMapBuilder<DescriptorGuid, DescriptorLink>,
     blobs: StaticMapBuilder<BlobGuid, BlobLink>,
+
+    incremental_data: Option<IncrementalData<F>>,
+}
+
+struct IncrementalData<F> {
+    reference_file: F,
 
     old_header_space: u64,
     default_data_size: u64,
     default_data_size_unaligned: u64,
-
-    data_writer: Cursor<Vec<u8>>,
-    file: File,
-
-    dat_infos: Vec<DatInfo>,
-    dat_writer: Option<BufWriter<File>>,
 }
 
 impl<F, T> KFCWriter<F, T>
@@ -29,7 +33,30 @@ where
     T: Borrow<TypeRegistry>,
 {
 
-    pub fn new<P: AsRef<Path>>(
+    pub fn new<P: AsRef<Path>, S: AsRef<str>>(
+        path: P,
+        type_registry: T,
+        game_version: S,
+    ) -> Result<Self, KFCReadError> {
+        let file = File::options().write(true).read(true).open(&path)?;
+
+        Ok(Self {
+            path: path.as_ref().into(),
+            type_registry,
+
+            file,
+            data_writer: Cursor::new(Vec::new()),
+            dat_writers: Vec::new(),
+
+            game_version: game_version.as_ref().to_string(),
+            descriptors: StaticMapBuilder::default(),
+            blobs: StaticMapBuilder::default(),
+
+            incremental_data: None,
+        })
+    }
+
+    pub fn new_incremental<P: AsRef<Path>>(
         path: P,
         reference_file: F,
         type_registry: T,
@@ -42,7 +69,6 @@ where
 
         let descriptors = file.get_descriptor_map().as_builder();
         let blobs = file.get_blob_map().as_builder();
-        let dat_infos = file.get_dat_infos().to_vec();
 
         drop(current_file);
 
@@ -50,21 +76,23 @@ where
 
         Ok(Self {
             path: path.as_ref().into(),
-            reference_file,
             type_registry,
 
+            file,
+            data_writer: Cursor::new(Vec::new()),
+            dat_writers: Vec::new(),
+
+            game_version: reference_file.borrow().game_version().to_string(),
             descriptors,
             blobs,
 
-            old_header_space: header_space,
-            default_data_size,
-            default_data_size_unaligned,
+            incremental_data: Some(IncrementalData {
+                reference_file,
 
-            data_writer: Cursor::new(Vec::new()),
-            file,
-
-            dat_infos,
-            dat_writer: None,
+                old_header_space: header_space,
+                default_data_size,
+                default_data_size_unaligned,
+            }),
         })
     }
 
@@ -79,8 +107,9 @@ where
     }
 
     #[inline]
-    pub fn file(&self) -> &KFCFile {
-        self.reference_file.borrow()
+    pub fn reference_file(&self) -> Option<&KFCFile> {
+        self.incremental_data.as_ref()
+            .map(|data| data.reference_file.borrow())
     }
 
     pub fn write_descriptor(
@@ -88,7 +117,11 @@ where
         guid: &DescriptorGuid,
         bytes: &[u8]
     ) -> std::io::Result<()> {
-        let offset = self.data_writer.stream_position()? + self.default_data_size;
+        let base_offset = self.incremental_data.as_ref()
+            .map(|data| data.default_data_size)
+            .unwrap_or(0);
+        let offset = self.data_writer.stream_position()? + base_offset;
+
         self.descriptors.insert(*guid, DescriptorLink {
             offset,
             size: bytes.len() as u64
@@ -109,148 +142,236 @@ where
             return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Blob size mismatch"));
         }
 
-        let (dat_writer, dat_index) = self.get_dat_writer()?;
-        let offset = dat_writer.stream_position()?;
+        let dat_writer = self.get_dat_writer()?;
+        let index = dat_writer.index;
 
-        dat_writer.write_all(data)?;
-        dat_writer.align(4096)?;
+        let writer = dat_writer.aquire()?;
+        let offset = writer.stream_position()?;
 
-        self.blobs.insert(*guid, BlobLink::new(offset, 0, dat_index));
+        writer.write_all(data)?;
+        writer.align(4096)?;
+
+        self.blobs.insert(*guid, BlobLink::new(offset, 0, index));
 
         Ok(())
     }
 
     pub fn finalize(mut self) -> Result<(), KFCWriteError> {
-        self.finalize_dat_info()?;
-
-        let size = self.data_writer.stream_position()? + self.default_data_size;
+        let base_size = self.incremental_data.as_ref()
+            .map(|data| data.default_data_size)
+            .unwrap_or(0);
+        let size = base_size + self.data_writer.stream_position()?;
         let data = self.data_writer.into_inner();
+
+        // prepare dat infos
+
+        let mut dat_infos = self.incremental_data.as_ref()
+            .map(|data| data.reference_file.borrow().get_dat_infos().to_vec())
+            .unwrap_or_default();
+
+        dat_infos.reserve_exact(self.dat_writers.len());
+
+        self.dat_writers.sort_by_key(|dat_writer| dat_writer.index);
+
+        for dat_writer in &mut self.dat_writers {
+            dat_writer.flush()?;
+
+            dat_infos.push(DatInfo {
+                size: dat_writer.position()?,
+                count: dat_writer.count,
+            });
+        }
 
         // header construction
 
         let mut header_writer = BufWriter::new(Cursor::new(Vec::new()));
         let mut file = KFCFile::default();
 
-        file.set_game_version(self.reference_file.borrow().game_version().to_string());
+        file.set_game_version(self.game_version);
         file.set_descriptors(self.descriptors.build(), self.type_registry.borrow());
         file.set_blobs(self.blobs.build());
-        file.set_dat_infos(self.reference_file.borrow().get_dat_infos().to_vec());
+        file.set_dat_infos(dat_infos);
         file.set_data_location(0, size);
 
         file.write(&mut header_writer)?;
 
-        let header_size = header_writer.stream_position()?;
-        let mut available_header_space = self.old_header_space;
-        let mut padding = 0;
+        if let Some(incremental_data) = self.incremental_data {
+            let header_size = header_writer.stream_position()?;
+            let mut available_header_space = incremental_data.old_header_space;
+            let mut padding = 0;
 
-        while available_header_space < header_size {
-            // add 64KiB padding to reduce consecutive default data movement
-            padding += 0x10000;
-            available_header_space += 0x10000;
-        }
-
-        file.set_data_location(available_header_space, size);
-
-        // write data
-
-        if padding > 0 {
-            Self::copy_within_file(&mut self.file, self.old_header_space, self.default_data_size_unaligned, available_header_space)?;
-        }
-
-        let mut file_writer = BufWriter::new(self.file);
-
-        file_writer.seek(SeekFrom::Start(0))?;
-        file.write_info(&mut file_writer)?;
-        file_writer.padding(available_header_space - header_size)?;
-
-        file_writer.seek(SeekFrom::Current(self.default_data_size as i64))?;
-        file_writer.write_all(&data)?;
-
-        Ok(())
-    }
-
-    fn copy_within_file(
-        file: &mut File,
-        src: u64,
-        len: u64,
-        dst: u64,
-    ) -> std::io::Result<()> {
-        if src == dst {
-            return Ok(());
-        }
-
-        if src < dst {
-            const BUFFER_SIZE: u64 = 8192;
-            let mut buf = vec![0u8; BUFFER_SIZE as usize];
-            let mut remaining = len;
-
-            file.seek(SeekFrom::End(0))?;
-
-            while remaining > 0 {
-                let chunk_len = BUFFER_SIZE.min(remaining);
-                let src_off = src + remaining - chunk_len;
-                let dst_off = dst + remaining - chunk_len;
-                let chunk = &mut buf[..chunk_len as usize];
-
-                file.seek(SeekFrom::Start(src_off))?;
-                file.read_exact(chunk)?;
-
-                file.seek(SeekFrom::Start(dst_off))?;
-                file.write_all(chunk)?;
-
-                remaining -= chunk_len;
+            while available_header_space < header_size {
+                // add 64KiB padding to reduce consecutive default data movement
+                padding += 0x10000;
+                available_header_space += 0x10000;
             }
+
+            file.set_data_location(available_header_space, size);
+
+            // write data
+
+            if padding > 0 {
+                copy_within_file(
+                    &mut self.file,
+                    incremental_data.old_header_space,
+                    incremental_data.default_data_size_unaligned,
+                    available_header_space
+                )?;
+            }
+
+            let mut file_writer = BufWriter::new(self.file);
+
+            file_writer.seek(SeekFrom::Start(0))?;
+            file.write_info(&mut file_writer)?;
+            file_writer.padding(available_header_space - header_size)?;
+
+            file_writer.seek(SeekFrom::Current(incremental_data.default_data_size as i64))?;
+            file_writer.write_all(&data)?;
         } else {
-            const BUFFER_SIZE: u64 = 8192;
-            let mut buf = vec![0u8; BUFFER_SIZE as usize];
-            let mut remaining = len;
+            file.set_data_location(header_writer.stream_position()?, size);
 
-            while remaining > 0 {
-                let chunk_len = BUFFER_SIZE.min(remaining);
-                let src_off = src + len - remaining;
-                let dst_off = dst + len - remaining;
-                let chunk = &mut buf[..chunk_len as usize];
+            // write data
 
-                file.seek(SeekFrom::Start(src_off))?;
-                file.read_exact(chunk)?;
+            let mut file_writer = BufWriter::new(self.file);
 
-                file.seek(SeekFrom::Start(dst_off))?;
-                file.write_all(chunk)?;
+            file_writer.seek(SeekFrom::Start(0))?;
+            file.write_info(&mut file_writer)?;
+            file_writer.write_all(&data)?;
+        }
 
-                remaining -= chunk_len;
+        Ok(())
+    }
+
+    fn get_dat_writer(&mut self) -> std::io::Result<&mut DatWriter> {
+        if !self.dat_writers.is_empty() {
+            let writer = self.dat_writers.last_mut().unwrap();
+            let pos = writer.position()?;
+
+            const MAX_DAT_SIZE: u64 = 1024 * 1024 * 1024; // 1 GiB
+
+            if pos < MAX_DAT_SIZE {
+                return Ok(self.dat_writers.last_mut().unwrap());
             }
         }
 
-        Ok(())
-    }
+        // create a new dat writer
 
-    // TODO: Support splitting data into multiple dat files
-    fn get_dat_writer(&mut self) -> std::io::Result<(&mut BufWriter<File>, usize)> {
-        let index = 0;
+        let base_index = self.incremental_data.as_ref()
+            .map(|data| data.reference_file.borrow().get_dat_infos().len())
+            .unwrap_or(0);
+        let next_index = base_index + self.dat_writers.len();
 
-        if index >= self.dat_infos.len() {
-            self.finalize_dat_info()?;
+        let mut base_path = self.path.with_extension("").into_os_string();
 
-            self.dat_infos.push(DatInfo::default());
+        base_path.push(format!("_{next_index:03}.dat"));
 
-            // Format: FILE_NAME_{INDEX}.dat where INDEX is 3 digits with leading zeros
-            let path = self.path.with_extension(format!("_{index:03}.dat"));
-            self.dat_writer = Some(BufWriter::new(File::create(path)?));
+        let path = PathBuf::from(base_path);
+
+        if path.exists() {
+            // make sure we don't accidentally overwrite an existing file
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                format!("Data file already exists: {}", path.display())
+            ));
         }
 
-        self.dat_infos[index].count += 1;
+        let writer = BufWriter::new(File::create(&path)?);
+        let writer = DatWriter::new(next_index, writer);
 
-        Ok((self.dat_writer.as_mut().unwrap(), index))
+        self.dat_writers.push(writer);
+
+        Ok(self.dat_writers.last_mut().unwrap())
     }
 
-    fn finalize_dat_info(&mut self) -> std::io::Result<()> {
-        if let Some(writer) = self.dat_writer.as_mut() {
-            writer.flush()?;
-            self.dat_infos.last_mut().unwrap().size = writer.stream_position()?;
-            self.dat_writer = None;
+}
+
+struct DatWriter {
+    index: usize,
+    count: usize,
+    writer: BufWriter<File>,
+}
+
+impl DatWriter {
+
+    #[inline]
+    fn new(index: usize, writer: BufWriter<File>) -> Self {
+        Self {
+            index,
+            count: 0,
+            writer,
         }
-
-        Ok(())
     }
 
+    #[inline]
+    fn aquire(&mut self) -> std::io::Result<&mut BufWriter<File>> {
+        self.count += 1;
+        Ok(&mut self.writer)
+    }
+
+    #[inline]
+    fn position(&mut self) -> std::io::Result<u64> {
+        self.writer.stream_position()
+    }
+
+    #[inline]
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.writer.flush()
+    }
+
+}
+
+
+fn copy_within_file(
+    file: &mut File,
+    src: u64,
+    len: u64,
+    dst: u64,
+) -> std::io::Result<()> {
+    if src == dst {
+        return Ok(());
+    }
+
+    if src < dst {
+        const BUFFER_SIZE: u64 = 8192;
+        let mut buf = vec![0u8; BUFFER_SIZE as usize];
+        let mut remaining = len;
+
+        file.seek(SeekFrom::End(0))?;
+
+        while remaining > 0 {
+            let chunk_len = BUFFER_SIZE.min(remaining);
+            let src_off = src + remaining - chunk_len;
+            let dst_off = dst + remaining - chunk_len;
+            let chunk = &mut buf[..chunk_len as usize];
+
+            file.seek(SeekFrom::Start(src_off))?;
+            file.read_exact(chunk)?;
+
+            file.seek(SeekFrom::Start(dst_off))?;
+            file.write_all(chunk)?;
+
+            remaining -= chunk_len;
+        }
+    } else {
+        const BUFFER_SIZE: u64 = 8192;
+        let mut buf = vec![0u8; BUFFER_SIZE as usize];
+        let mut remaining = len;
+
+        while remaining > 0 {
+            let chunk_len = BUFFER_SIZE.min(remaining);
+            let src_off = src + len - remaining;
+            let dst_off = dst + len - remaining;
+            let chunk = &mut buf[..chunk_len as usize];
+
+            file.seek(SeekFrom::Start(src_off))?;
+            file.read_exact(chunk)?;
+
+            file.seek(SeekFrom::Start(dst_off))?;
+            file.write_all(chunk)?;
+
+            remaining -= chunk_len;
+        }
+    }
+
+    Ok(())
 }

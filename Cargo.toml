@@ -17,7 +17,7 @@ license = "GPL-3.0-or-later"
 license-file = "LICENSE"
 
 [workspace.dependencies]
-kfc = { path = "crates/kfc", features = ["blob"] }
+kfc = { path = "crates/kfc", features = ["descriptor", "blob"] }
 
 anyhow = { version = "1.0.95", features = ["backtrace"] }
 thiserror = "2.0.11"

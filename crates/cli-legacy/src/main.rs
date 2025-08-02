@@ -600,7 +600,7 @@ fn repack_files(
         fatal!("No files found to repack");
     }
 
-    let mut writer = match KFCWriter::new(kfc_path, ref_kfc_file, type_registry) {
+    let mut writer = match KFCWriter::new_incremental(kfc_path, ref_kfc_file, type_registry) {
         Ok(writer) => writer,
         Err(e) => fatal!("Failed to open {}: {}", kfc_path.display(), e)
     };
@@ -752,7 +752,7 @@ fn repack_stdin(
     type_registry: &TypeRegistry,
     thread_count: u8
 ) -> Result<(), Error> {
-    let mut writer = match KFCWriter::new(kfc_path, ref_kfc_file, type_registry) {
+    let mut writer = match KFCWriter::new_incremental(kfc_path, ref_kfc_file, type_registry) {
         Ok(writer) => writer,
         Err(e) => fatal!("Failed to open {}: {}", kfc_path.display(), e)
     };
