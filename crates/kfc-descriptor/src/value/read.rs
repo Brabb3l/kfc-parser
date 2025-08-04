@@ -8,7 +8,7 @@ use kfc::{
 
 use crate::{
     mapped::{
-        MappedArray, MappedBit, MappedEnum, MappedOptional, MappedStruct, MappedValue, MappedVariant, MappingError
+        MappedArray, MappedBitmask, MappedEnum, MappedOptional, MappedStruct, MappedValue, MappedVariant, MappingError
     },
     value::{Value, Variant},
 };
@@ -157,11 +157,8 @@ impl Value {
             MappedValue::SInt64(v) => Self::SInt(v),
             MappedValue::Float32(v) => Self::Float(v.into()),
             MappedValue::Float64(v) => Self::Float(v),
-            MappedValue::Enum(v) => Self::from_enum(options, v),
-            MappedValue::Bitmask8(v) => Self::from_bitmask(v.value().into(), || v.bits(), options),
-            MappedValue::Bitmask16(v) => Self::from_bitmask(v.value().into(), || v.bits(), options),
-            MappedValue::Bitmask32(v) => Self::from_bitmask(v.value().into(), || v.bits(), options),
-            MappedValue::Bitmask64(v) => Self::from_bitmask(v.value(), || v.bits(), options),
+            MappedValue::Enum(v) => Self::from_enum(v, options),
+            MappedValue::Bitmask(v) => Self::from_bitmask(v, options),
             MappedValue::Struct(r#struct) => Self::from_struct(r#struct, options)?,
             MappedValue::Array(array) => Self::from_array(array, options)?,
             MappedValue::String(s) => Self::String(s.as_str()?.to_string()),
@@ -173,7 +170,10 @@ impl Value {
     }
 
     #[inline]
-    fn from_enum<T>(options: &ConversionOptions, r#enum: MappedEnum<T>) -> Self
+    fn from_enum<T>(
+        r#enum: MappedEnum<T>,
+        options: &ConversionOptions
+    ) -> Self
     where
         T: Borrow<TypeRegistry> + Clone,
     {
@@ -188,19 +188,20 @@ impl Value {
     }
 
     #[inline]
-    fn from_bitmask<'a, F>(value: u64, bits: F, options: &ConversionOptions) ->Self
+    fn from_bitmask<T>(
+        value: MappedBitmask<T>,
+        options: &ConversionOptions
+    ) -> Self
     where
-        F: Fn() -> Vec<MappedBit<'a>>,
+        T: Borrow<TypeRegistry> + Clone,
     {
         match options.bitmask_repr {
             BitmaskRepr::ArrayValue => Self::Array(
-                bits()
-                    .iter()
+                value.iter()
                     .map(|v| Self::UInt(v.value())).collect()
             ),
             BitmaskRepr::ArrayName => Self::Array(
-                bits()
-                    .iter()
+                value.iter()
                     .map(|v| {
                         v.name()
                             .map(str::to_string)
@@ -209,7 +210,7 @@ impl Value {
                     })
                     .collect(),
             ),
-            BitmaskRepr::Value => Self::UInt(value),
+            BitmaskRepr::Value => Self::UInt(value.value()),
         }
     }
 

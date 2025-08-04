@@ -1,14 +1,14 @@
 use std::{borrow::Borrow, ops::Deref};
 
-use kfc::{guid::BlobGuid, reflection::{LookupKey, PrimitiveType, StructFieldMetadata, TypeMetadata, TypeRegistry}};
+use kfc::{guid::BlobGuid, reflection::{EnumFieldMetadata, LookupKey, PrimitiveType, StructFieldMetadata, TypeMetadata, TypeRegistry}};
 
 mod error;
 mod util;
 mod type_handle;
 
 pub use error::*;
+pub use type_handle::*;
 use util::*;
-use type_handle::*;
 
 #[derive(Debug, Clone)]
 pub enum MappedValue<D, T> {
@@ -25,10 +25,7 @@ pub enum MappedValue<D, T> {
     Float32(f32),
     Float64(f64),
     Enum(MappedEnum<T>),
-    Bitmask8(MappedBitmask8<T>),
-    Bitmask16(MappedBitmask16<T>),
-    Bitmask32(MappedBitmask32<T>),
-    Bitmask64(MappedBitmask64<T>),
+    Bitmask(MappedBitmask<T>),
     Struct(MappedStruct<D, T>),
     Array(MappedArray<D, T>),
     String(MappedString<D>),
@@ -225,55 +222,13 @@ where
     }
 
     #[inline]
-    pub fn is_bitmask8(&self) -> bool {
-        matches!(self, Self::Bitmask8(_))
+    pub fn is_bitmask(&self) -> bool {
+        matches!(self, Self::Bitmask(_))
     }
 
     #[inline]
-    pub fn as_bitmask8(&self) -> Option<&MappedBitmask8<T>> {
-        if let Self::Bitmask8(value) = self {
-            Some(value)
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    pub fn is_bitmask16(&self) -> bool {
-        matches!(self, Self::Bitmask16(_))
-    }
-
-    #[inline]
-    pub fn as_bitmask16(&self) -> Option<&MappedBitmask16<T>> {
-        if let Self::Bitmask16(value) = self {
-            Some(value)
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    pub fn is_bitmask32(&self) -> bool {
-        matches!(self, Self::Bitmask32(_))
-    }
-
-    #[inline]
-    pub fn as_bitmask32(&self) -> Option<&MappedBitmask32<T>> {
-        if let Self::Bitmask32(value) = self {
-            Some(value)
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    pub fn is_bitmask64(&self) -> bool {
-        matches!(self, Self::Bitmask64(_))
-    }
-
-    #[inline]
-    pub fn as_bitmask64(&self) -> Option<&MappedBitmask64<T>> {
-        if let Self::Bitmask64(value) = self {
+    pub fn as_bitmask(&self) -> Option<&MappedBitmask<T>> {
+        if let Self::Bitmask(value) = self {
             Some(value)
         } else {
             None
@@ -464,7 +419,7 @@ where
         offset: usize,
     ) -> Result<Self, MappingError> {
         let value = get_u8(data.borrow(), offset)?;
-        Ok(MappedBitmask8::new(r#type.clone(), value).into())
+        Ok(MappedBitmask::new(r#type.clone(), value as u64).into())
     }
 
     #[inline]
@@ -474,7 +429,7 @@ where
         offset: usize,
     ) -> Result<Self, MappingError> {
         let value = get_u16(data.borrow(), offset)?;
-        Ok(MappedBitmask16::new(r#type.clone(), value).into())
+        Ok(MappedBitmask::new(r#type.clone(), value as u64).into())
     }
 
     #[inline]
@@ -484,7 +439,7 @@ where
         offset: usize,
     ) -> Result<Self, MappingError> {
         let value = get_u32(data.borrow(), offset)?;
-        Ok(MappedBitmask32::new(r#type.clone(), value).into())
+        Ok(MappedBitmask::new(r#type.clone(), value as u64).into())
     }
 
     #[inline]
@@ -494,7 +449,7 @@ where
         offset: usize,
     ) -> Result<Self, MappingError> {
         let value = get_u64(data.borrow(), offset)?;
-        Ok(MappedBitmask64::new(r#type.clone(), value).into())
+        Ok(MappedBitmask::new(r#type.clone(), value).into())
     }
 
     #[inline]
@@ -734,6 +689,125 @@ where
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct MappedBitmask<T> {
+    r#type: TypeHandle<T>,
+    bit_type: TypeHandle<T>,
+    value: u64,
+}
+
+impl<T> MappedBitmask<T>
+where
+    T: Borrow<TypeRegistry> + Clone,
+{
+    #[inline]
+    fn new(r#type: TypeHandle<T>, value: u64) -> Self {
+        let bit_type = get_inner_type(&r#type);
+
+        Self {
+            r#type,
+            bit_type,
+            value,
+        }
+    }
+
+    #[inline]
+    pub fn r#type(&self) -> &TypeHandle<T> {
+        &self.r#type
+    }
+
+    #[inline]
+    pub fn bit_type(&self) -> &TypeHandle<T> {
+        &self.bit_type
+    }
+
+    #[inline]
+    pub fn value(&self) -> u64 {
+        self.value
+    }
+
+    #[inline]
+    pub fn bit_count(&self) -> u32 {
+        match self.r#type.primitive_type {
+            PrimitiveType::Bitmask8 => 8,
+            PrimitiveType::Bitmask16 => 16,
+            PrimitiveType::Bitmask32 => 32,
+            PrimitiveType::Bitmask64 => 64,
+            _ => panic!("Invalid bitmask type: {:?}", self.bit_type.primitive_type),
+        }
+    }
+
+    pub fn iter(&self) -> BitIter<'_> {
+        BitIter::new(self)
+    }
+
+}
+
+pub struct BitIter<'a> {
+    value: u64,
+    enum_fields: indexmap::map::Values<'a, String, EnumFieldMetadata>,
+
+    bits_left: u32,
+    checked_bits: u64,
+    next_unnamed: u64,
+    check_unnamed: bool,
+}
+
+impl<'a> BitIter<'a> {
+
+    pub fn new<T>(
+        bitmask: &'a MappedBitmask<T>
+    ) -> Self
+    where
+        T: Borrow<TypeRegistry> + Clone,
+    {
+        BitIter {
+            value: bitmask.value,
+            enum_fields: bitmask.bit_type.enum_fields.values(),
+
+            bits_left: bitmask.value.count_ones(),
+            checked_bits: 0,
+            next_unnamed: 0,
+            check_unnamed: false,
+        }
+    }
+
+}
+
+impl<'a> Iterator for BitIter<'a> {
+    type Item = MappedBit<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if !self.check_unnamed {
+            for enum_field in self.enum_fields.by_ref() {
+                let enum_value = enum_field.value;
+                let enum_name = &enum_field.name;
+
+                self.checked_bits |= 1 << enum_value;
+
+                if self.value & (1 << enum_value) != 0 {
+                    self.bits_left -= 1;
+                    return Some(MappedBit::new(Some(enum_name), enum_value));
+                }
+            }
+
+            self.check_unnamed = true;
+        }
+
+        while self.bits_left > 0 {
+            let i = self.next_unnamed;
+            self.next_unnamed += 1;
+
+            if self.checked_bits & (1 << i) == 0 && self.value & (1 << i) != 0 {
+                self.bits_left -= 1;
+                return Some(MappedBit::new(None, i));
+            }
+        }
+
+        None
+    }
+}
+
 pub struct MappedBit<'a> {
     name: Option<&'a str>,
     value: u64,
@@ -758,79 +832,6 @@ impl<'a> MappedBit<'a> {
         self.value
     }
 }
-
-macro_rules! bitmask {
-    ($name:ident, $type:ty) => {
-        #[derive(Debug, Clone)]
-        pub struct $name<T> {
-            r#type: TypeHandle<T>,
-            bit_type: TypeHandle<T>,
-            value: $type,
-        }
-
-        impl<T> $name<T>
-        where
-            T: Borrow<TypeRegistry> + Clone,
-        {
-            #[inline]
-            fn new(r#type: TypeHandle<T>, value: $type) -> Self {
-                let bit_type = get_inner_type(&r#type);
-
-                Self {
-                    r#type,
-                    bit_type,
-                    value,
-                }
-            }
-
-            #[inline]
-            pub fn r#type(&self) -> &TypeHandle<T> {
-                &self.r#type
-            }
-
-            #[inline]
-            pub fn bit_type(&self) -> &TypeHandle<T> {
-                &self.bit_type
-            }
-
-            #[inline]
-            pub fn value(&self) -> $type {
-                self.value
-            }
-
-            pub fn bits(&self) -> Vec<MappedBit<'_>> {
-                let mut bits = Vec::with_capacity(self.value.count_ones() as usize);
-                let mut checked_bits = 0;
-
-                for enum_field in self.bit_type.enum_fields.values() {
-                    let enum_value = enum_field.value;
-                    let enum_name = &enum_field.name;
-
-                    checked_bits |= 1 << enum_value;
-
-                    if self.value & (1 << enum_value) != 0 {
-                        bits.push(MappedBit::new(Some(enum_name), enum_value as u64));
-                    }
-                }
-
-                if self.value.count_ones() != bits.len() as u32 {
-                    for i in 0..<$type>::BITS {
-                        if checked_bits & (1 << i) == 0 && self.value & (1 << i) != 0 {
-                            bits.push(MappedBit::new(None, i as u64));
-                        }
-                    }
-                }
-
-                bits
-            }
-        }
-    };
-}
-
-bitmask!(MappedBitmask8, u8);
-bitmask!(MappedBitmask16, u16);
-bitmask!(MappedBitmask32, u32);
-bitmask!(MappedBitmask64, u64);
 
 #[derive(Debug, Clone)]
 pub struct MappedOptional<D, T> {
@@ -1190,10 +1191,7 @@ impl_from_mapped_value!(i64, SInt64);
 impl_from_mapped_value!(f32, Float32);
 impl_from_mapped_value!(f64, Float64);
 impl_from_mapped_value!(MappedEnum<T>, Enum);
-impl_from_mapped_value!(MappedBitmask8<T>, Bitmask8);
-impl_from_mapped_value!(MappedBitmask16<T>, Bitmask16);
-impl_from_mapped_value!(MappedBitmask32<T>, Bitmask32);
-impl_from_mapped_value!(MappedBitmask64<T>, Bitmask64);
+impl_from_mapped_value!(MappedBitmask<T>, Bitmask);
 impl_from_mapped_value!(MappedStruct<D, T>, Struct);
 impl_from_mapped_value!(MappedArray<D, T>, Array);
 impl_from_mapped_value!(MappedString<D>, String);
