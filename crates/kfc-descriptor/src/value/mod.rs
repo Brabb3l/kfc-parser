@@ -34,6 +34,25 @@ pub struct Variant {
 }
 
 impl Value {
+
+    #[inline]
+    pub fn new_struct() -> Self {
+        Self::Struct(Box::new(IndexMap::new()))
+    }
+
+    #[inline]
+    pub fn new_array() -> Self {
+        Self::Array(Vec::new())
+    }
+
+    #[inline]
+    pub fn new_variant(type_index: TypeIndex) -> Self {
+        Self::Variant(Box::new(Variant {
+            type_index,
+            value: IndexMap::new(),
+        }))
+    }
+
     #[inline]
     pub fn is_none(&self) -> bool {
         matches!(self, Self::None)
@@ -294,6 +313,7 @@ impl Value {
             None
         }
     }
+
 }
 
 impl Display for Value {
