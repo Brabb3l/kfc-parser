@@ -247,6 +247,23 @@ where
             });
         }
 
+        // make sure to have a power of two dat files
+
+        let required_dat_count = dat_infos.len().next_power_of_two();
+
+        while dat_infos.len() < required_dat_count {
+            let path = self.get_dat_file_path(dat_infos.len());
+
+            if !path.exists() || self.options.truncate_dat {
+                File::create(path)?;
+            }
+
+            dat_infos.push(DatInfo {
+                size: 0,
+                count: 0,
+            });
+        }
+
         // header construction
 
         let mut header_writer = BufWriter::new(Cursor::new(Vec::new()));
