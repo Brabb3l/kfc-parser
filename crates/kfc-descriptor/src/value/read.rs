@@ -223,7 +223,7 @@ impl Value {
         D: Borrow<[u8]> + Clone,
         T: Borrow<TypeRegistry> + Clone,
     {
-        let mut map = IndexMap::with_capacity(r#struct.len()?);
+        let mut map = IndexMap::with_capacity(r#struct.len());
 
         for field in r#struct.iter() {
             let (name, value) = field?;

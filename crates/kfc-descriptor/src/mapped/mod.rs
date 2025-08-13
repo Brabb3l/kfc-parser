@@ -1,14 +1,13 @@
-use std::{borrow::Borrow, ops::Deref};
+use std::borrow::Borrow;
 
-use kfc::{guid::BlobGuid, reflection::{EnumFieldMetadata, LookupKey, PrimitiveType, StructFieldMetadata, TypeMetadata, TypeRegistry}};
+use kfc::{guid::BlobGuid, reflection::{EnumFieldMetadata, LookupKey, PrimitiveType, TypeHandle, TypeMetadata, TypeRegistry}};
 
 mod error;
 mod util;
-mod type_handle;
+
+use util::*;
 
 pub use error::*;
-pub use type_handle::*;
-use util::*;
 
 #[derive(Debug, Clone)]
 pub enum MappedValue<D, T> {
@@ -940,53 +939,11 @@ where
         &self.data
     }
 
-    pub fn get_field_type(
-        &self,
-        field_name: &str
-    ) -> Result<Option<TypeHandle<T>>, MappingError> {
-        let field = match self.get_field_metadata(field_name) {
-            Some(value) => value,
-            None => return Ok(None),
-        };
-
-        let type_registry = self.r#type.type_registry().clone();
-        let field_type = match TypeHandle::try_new(type_registry, field.r#type) {
-            Some(t) => t,
-            None => return Err(MappingError::InvalidTypeIndex(field.r#type)),
-        };
-
-        Ok(Some(field_type))
-    }
-
-    pub fn get_field_metadata(
-        &self,
-        field_name: &str
-    ) -> Option<&StructFieldMetadata> {
-        let type_registry = self.r#type.type_registry().borrow();
-        let mut r#type = self.r#type.deref();
-        let mut field;
-
-        loop {
-            field = r#type.struct_fields.get(field_name);
-
-            if field.is_some() {
-                break;
-            }
-
-            match type_registry.get_inner_type(r#type) {
-                Some(parent_type) => r#type = parent_type,
-                None => return None,
-            }
-        }
-
-        field
-    }
-
     pub fn get(
         &self,
         field_name: &str
     ) -> Result<Option<MappedValue<D, T>>, MappingError> {
-        let field = match self.get_field_metadata(field_name) {
+        let field = match self.r#type.get_field_metadata(field_name) {
             Some(value) => value,
             None => return Ok(None),
         };
@@ -1030,7 +987,7 @@ where
     }
 
     #[inline]
-    pub fn len(&self) -> Result<usize, MappingError> {
+    pub fn len(&self) -> usize {
         let mut r#type = self.r#type.clone();
         let mut total = r#type.field_count;
 
@@ -1039,12 +996,12 @@ where
             r#type = parent_type;
         }
 
-        Ok(total as usize)
+        total as usize
     }
 
     #[inline]
-    pub fn is_empty(&self) -> Result<bool, MappingError> {
-        Ok(self.len()? == 0)
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
 }

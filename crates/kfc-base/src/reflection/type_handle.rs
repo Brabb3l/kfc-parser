@@ -1,7 +1,8 @@
 use std::{borrow::Borrow, ops::Deref};
 
-use kfc::reflection::{StructFieldMetadata, TypeIndex, TypeMetadata, TypeRegistry};
+use crate::reflection::{StructFieldMetadata, TypeIndex, TypeMetadata, TypeRegistry};
 
+/// A utility type which provides a handle to a type in a type registry.
 #[derive(Debug, Clone)]
 pub struct TypeHandle<T> {
     type_registry: T,
@@ -37,6 +38,49 @@ where
         &self.type_registry
     }
 
+    pub fn get_field_type(
+        &self,
+        field_name: &str
+    ) -> Option<Self> {
+        let field = self.get_field_metadata(field_name)?;
+        let type_registry = self.type_registry.clone();
+        let field_type = Self::try_new(type_registry, field.r#type)
+            .expect("field type must exist in the type registry");
+
+        Some(field_type)
+    }
+
+    pub fn get_field_metadata(
+        &self,
+        field_name: &str
+    ) -> Option<&StructFieldMetadata> {
+        let type_registry = self.type_registry.borrow();
+        let mut r#type = self.deref();
+        let mut field;
+
+        loop {
+            field = r#type.struct_fields.get(field_name);
+
+            if field.is_some() {
+                break;
+            }
+
+            match type_registry.get_inner_type(r#type) {
+                Some(parent_type) => r#type = parent_type,
+                None => return None,
+            }
+        }
+
+        field
+    }
+
+    pub fn is_sub_type_of(
+        &self,
+        parent: &TypeMetadata,
+    ) -> bool {
+        self.type_registry.borrow().is_sub_type(self, parent)
+    }
+
     #[inline]
     pub fn index(&self) -> TypeIndex {
         self.index
@@ -58,7 +102,6 @@ where
         )
     }
 
-    #[inline]
     pub fn iter_fields(&self) -> impl Iterator<Item = &StructFieldMetadata> {
         let mut depth = 0;
         let mut current_type: &TypeMetadata = self;
@@ -76,6 +119,7 @@ where
             index: 0,
         }
     }
+
 }
 
 impl<T> Deref for TypeHandle<T>

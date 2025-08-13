@@ -15,4 +15,3 @@ pub enum MappingError {
     #[error("{0}")]
     UnsupportedOperation(&'static str),
 }
-
