@@ -97,6 +97,16 @@ impl BlobGuid {
     }
 
     #[inline]
+    pub const fn into_parts(self) -> (u32, u32, u32, u32) {
+        (
+            self.size(),
+            u32::from_le_bytes([self.data[4], self.data[5], self.data[6], self.data[7]]),
+            u32::from_le_bytes([self.data[8], self.data[9], self.data[10], self.data[11]]),
+            u32::from_le_bytes([self.data[12], self.data[13], self.data[14], self.data[15]]),
+        )
+    }
+
+    #[inline]
     pub const fn size(&self) -> u32 {
         u32::from_le_bytes([
             self.data[0],
