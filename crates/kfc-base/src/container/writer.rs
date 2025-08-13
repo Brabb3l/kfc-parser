@@ -4,6 +4,9 @@ use crate::{guid::{BlobGuid, DescriptorGuid}, io::{WriteExt, WriteSeekExt}, refl
 
 use super::{header::{BlobLink, DatInfo, DescriptorLink}, KFCFile, KFCReadError, KFCWriteError, StaticMapBuilder};
 
+const DESCRIPTOR_ALIGNMENT: u64 = 16;
+const BLOB_ALIGNMENT: u64 = 4096;
+
 pub struct KFCWriter<F, T> {
     path: PathBuf,
     type_registry: T,
@@ -17,6 +20,7 @@ pub struct KFCWriter<F, T> {
     blobs: StaticMapBuilder<BlobGuid, BlobLink>,
 
     incremental_data: Option<IncrementalData<F>>,
+    options: KFCWriteOptions,
 }
 
 struct IncrementalData<F> {
@@ -27,16 +31,60 @@ struct IncrementalData<F> {
     default_data_size_unaligned: u64,
 }
 
+#[derive(Debug)]
+pub struct KFCWriteOptions {
+    /// If true, the writer will overwrite existing data in the .dat files,
+    /// instead of causing an error.
+    /// **NOTE:** For incremental writes, this will only affect non-default .dat files.
+    pub overwrite_dat: bool,
+    /// The amount of header bytes to reserve for incremental writes.
+    /// This is used to prevent moving existing descriptor data around excessively.
+    pub incremental_reserve: u64,
+    // TEST: does the game use a i32, u32 or an artifical limit for the dat max size?
+    /// The maximum size of a single .dat file before a new one is created.
+    pub max_dat_size: u32,
+    /// Whether to truncate existing .dat files or not.
+    /// This is used to remove any leftover data from previous writes.
+    /// **NOTE:** For incremental writes, this will only affect non-default .dat files.
+    pub truncate_dat: bool,
+}
+
+impl Default for KFCWriteOptions {
+    fn default() -> Self {
+        Self {
+            overwrite_dat: false,
+            incremental_reserve: 64 * 1024, // 64 KiB
+            max_dat_size: 1024 * 1024 * 1024, // 1 GiB
+            truncate_dat: false,
+        }
+    }
+}
+
 impl<F, T> KFCWriter<F, T>
 where
     F: Borrow<KFCFile>,
     T: Borrow<TypeRegistry>,
 {
 
+    #[inline]
     pub fn new<P: AsRef<Path>, S: AsRef<str>>(
         path: P,
         type_registry: T,
         game_version: S,
+    ) -> Result<Self, KFCReadError> {
+        Self::new_with_options(
+            path,
+            type_registry,
+            game_version,
+            KFCWriteOptions::default(),
+        )
+    }
+
+    pub fn new_with_options<P: AsRef<Path>, S: AsRef<str>>(
+        path: P,
+        type_registry: T,
+        game_version: S,
+        options: KFCWriteOptions,
     ) -> Result<Self, KFCReadError> {
         let file = File::options().write(true).read(true).open(&path)?;
 
@@ -53,18 +101,35 @@ where
             blobs: StaticMapBuilder::default(),
 
             incremental_data: None,
+            options,
         })
     }
 
+    #[inline]
     pub fn new_incremental<P: AsRef<Path>>(
         path: P,
         reference_file: F,
         type_registry: T,
     ) -> Result<Self, KFCReadError> {
+        Self::new_incremental_with_options(
+            path,
+            reference_file,
+            type_registry,
+            KFCWriteOptions::default(),
+        )
+    }
+
+    pub fn new_incremental_with_options<P: AsRef<Path>>(
+        path: P,
+        reference_file: F,
+        type_registry: T,
+        options: KFCWriteOptions,
+    ) -> Result<Self, KFCReadError> {
         let current_file = KFCFile::from_path(&path, true)?;
         let header_space = current_file.data_offset();
         let file = reference_file.borrow();
-        let default_data_size = file.data_size() + (16 - (file.data_size() % 16)) % 16;
+        let default_data_size = file.data_size() +
+            (DESCRIPTOR_ALIGNMENT - (file.data_size() % DESCRIPTOR_ALIGNMENT)) % DESCRIPTOR_ALIGNMENT;
         let default_data_size_unaligned = file.data_size();
 
         let descriptors = file.get_descriptor_map().as_builder();
@@ -93,6 +158,7 @@ where
                 default_data_size,
                 default_data_size_unaligned,
             }),
+            options,
         })
     }
 
@@ -128,7 +194,7 @@ where
         });
 
         self.data_writer.write_all(bytes)?;
-        self.data_writer.align(16)?;
+        self.data_writer.align(DESCRIPTOR_ALIGNMENT as usize)?;
 
         Ok(())
     }
@@ -149,7 +215,7 @@ where
         let offset = writer.stream_position()?;
 
         writer.write_all(data)?;
-        writer.align(4096)?;
+        writer.align(BLOB_ALIGNMENT as usize)?;
 
         self.blobs.insert(*guid, BlobLink::new(offset, 0, index));
 
@@ -161,7 +227,6 @@ where
             .map(|data| data.default_data_size)
             .unwrap_or(0);
         let size = base_size + self.data_writer.stream_position()?;
-        let data = self.data_writer.into_inner();
 
         // prepare dat infos
 
@@ -220,6 +285,7 @@ where
             }
 
             let mut file_writer = BufWriter::new(self.file);
+            let data = self.data_writer.into_inner();
 
             file_writer.seek(SeekFrom::Start(0))?;
             file.write_info(&mut file_writer)?;
@@ -233,6 +299,7 @@ where
             // write data
 
             let mut file_writer = BufWriter::new(self.file);
+            let data = self.data_writer.into_inner();
 
             file_writer.seek(SeekFrom::Start(0))?;
             file.write_info(&mut file_writer)?;
@@ -260,14 +327,9 @@ where
             .map(|data| data.reference_file.borrow().get_dat_infos().len())
             .unwrap_or(0);
         let next_index = base_index + self.dat_writers.len();
+        let path = self.get_dat_file_path(next_index);
 
-        let mut base_path = self.path.with_extension("").into_os_string();
-
-        base_path.push(format!("_{next_index:03}.dat"));
-
-        let path = PathBuf::from(base_path);
-
-        if path.exists() {
+        if !self.options.overwrite_dat && path.exists() {
             // make sure we don't accidentally overwrite an existing file
             return Err(std::io::Error::new(
                 std::io::ErrorKind::AlreadyExists,
@@ -281,6 +343,12 @@ where
         self.dat_writers.push(writer);
 
         Ok(self.dat_writers.last_mut().unwrap())
+    }
+
+    fn get_dat_file_path(&self, index: usize) -> PathBuf {
+        let mut base_path = self.path.with_extension("").into_os_string();
+        base_path.push(format!("_{index:03}.dat"));
+        PathBuf::from(base_path)
     }
 
 }
