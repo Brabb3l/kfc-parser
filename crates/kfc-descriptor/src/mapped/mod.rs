@@ -569,31 +569,30 @@ where
     ) -> Result<Self, MappingError> {
         let variant_hash = get_u32(data.borrow(), offset)?;
         let blob_offset = get_u32(data.borrow(), offset + 4)? as usize;
-        // let size = get_u32(data, 8)? as usize;
+        // let size = get_u32(data.borrow(), 8)? as usize;
 
-        if blob_offset == 0 {
-            return Ok(MappedVariant::new(
-                r#type.clone(),
-                None
-            ).into());
-        }
+        let variant_type = if blob_offset == 0 && variant_hash == 0 {
+            r#type.inner_type()
+                .expect("invalid variant type")
+        } else {
+            let variant_type = r#type.type_registry().borrow()
+                .get_by_hash(LookupKey::Qualified(variant_hash))
+                .map(|t| t.index)
+                .ok_or(MappingError::InvalidTypeHash(variant_hash))?;
 
-        let variant_type = r#type.type_registry().borrow()
-            .get_by_hash(LookupKey::Qualified(variant_hash))
-            .map(|t| t.index)
-            .ok_or(MappingError::InvalidTypeHash(variant_hash))?;
-        let variant_type = TypeHandle::new(
-            r#type.type_registry().clone(),
-            variant_type
-        );
+            TypeHandle::new(
+                r#type.type_registry().clone(),
+                variant_type
+            )
+        };
 
         Ok(MappedVariant::new(
             r#type.clone(),
-            Some(MappedStruct::new(
+            MappedStruct::new(
                 variant_type,
                 data.clone(),
                 offset + blob_offset + 4
-            )),
+            ),
         ).into())
     }
 
@@ -870,7 +869,7 @@ where
 #[derive(Debug, Clone)]
 pub struct MappedVariant<D, T> {
     base_type: TypeHandle<T>,
-    value: Option<MappedStruct<D, T>>,
+    value: MappedStruct<D, T>,
 }
 
 impl<D, T> MappedVariant<D, T>
@@ -879,8 +878,11 @@ where
     T: Borrow<TypeRegistry> + Clone,
 {
     #[inline]
-    fn new(base_type: TypeHandle<T>, value: Option<MappedStruct<D, T>>) -> Self {
-        Self { base_type, value }
+    fn new(base_type: TypeHandle<T>, value: MappedStruct<D, T>) -> Self {
+        Self {
+            base_type,
+            value
+        }
     }
 
     #[inline]
@@ -889,19 +891,20 @@ where
     }
 
     #[inline]
-    pub fn variant_type(&self) -> Option<&TypeHandle<T>> {
-        self.value.as_ref().map(|v| &v.r#type)
+    pub fn variant_type(&self) -> &TypeHandle<T> {
+        &self.value.r#type
     }
 
     #[inline]
-    pub fn value(&self) -> Option<&MappedStruct<D, T>> {
-        self.value.as_ref()
+    pub fn value(&self) -> &MappedStruct<D, T> {
+        &self.value
     }
 
     #[inline]
-    pub fn into_value(self) -> Option<MappedStruct<D, T>> {
+    pub fn into_value(self) -> MappedStruct<D, T> {
         self.value
     }
+
 }
 
 #[derive(Debug, Clone)]

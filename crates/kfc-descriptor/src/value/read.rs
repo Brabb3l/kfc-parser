@@ -274,37 +274,34 @@ impl Value {
         D: Borrow<[u8]> + Clone,
         T: Borrow<TypeRegistry> + Clone,
     {
-        Ok(match variant.into_value() {
-            None => Self::None,
-            Some(variant) => {
-                if !options.variant.as_struct {
-                    let type_index = variant.r#type().index;
-                    let value = Self::from_impl(variant.into(), options)?
-                        .into_struct()
-                        .expect("Expected variant value to be a struct");
+        let variant = variant.into_value();
 
-                    Self::Variant(Variant { type_index, value }.into())
-                } else {
-                    let mut map = IndexMap::with_capacity(2);
+        if !options.variant.as_struct {
+            let type_index = variant.r#type().index;
+            let value = Self::from_impl(variant.into(), options)?
+                .into_struct()
+                .expect("Expected variant value to be a struct");
 
-                    if options.variant.qualified_type_name {
-                        let name = variant.r#type().qualified_name.clone();
-                        map.insert("$type".to_string(), Self::String(name));
-                    } else {
-                        let type_index = variant.r#type().index.as_usize() as u64;
-                        map.insert("$type".to_string(), Self::UInt(type_index));
-                    }
+            Ok(Self::Variant(Variant { type_index, value }.into()))
+        } else {
+            let mut map = IndexMap::with_capacity(2);
 
-                    let value = Self::from_impl(variant.into(), options)?
-                        .into_struct()
-                        .expect("Expected variant value to be a struct");
-
-                    map.insert("$value".to_string(), Self::Struct(value.into()));
-
-                    Self::Struct(map.into())
-                }
+            if options.variant.qualified_type_name {
+                let name = variant.r#type().qualified_name.clone();
+                map.insert("$type".to_string(), Self::String(name));
+            } else {
+                let type_index = variant.r#type().index.as_usize() as u64;
+                map.insert("$type".to_string(), Self::UInt(type_index));
             }
-        })
+
+            let value = Self::from_impl(variant.into(), options)?
+                .into_struct()
+                .expect("Expected variant value to be a struct");
+
+            map.insert("$value".to_string(), Self::Struct(value.into()));
+
+            Ok(Self::Struct(map.into()))
+        }
     }
 
     #[inline]

@@ -836,11 +836,22 @@ impl Value {
         }
 
         let type_registry = writer.type_registry;
+        let base_type = type_registry
+            .get_inner_type(r#type)
+            .expect("invalid variant type");
 
         let (variant_value, variant_type) = if let Some(variant) = self.as_variant() {
             let variant_type = type_registry
                 .get(variant.type_index)
                 .ok_or(WriteErrorInfo::InvalidType(variant.type_index))?;
+
+            if variant_type == base_type && variant_type.field_count == 0 {
+                writer.write_u32(0)?;
+                writer.write_u32(0)?;
+                writer.write_u32(0)?;
+
+                return Ok(());
+            }
 
             (&variant.value, variant_type)
         } else if let Some(value) = self.as_struct() {
@@ -874,6 +885,14 @@ impl Value {
                 .ok_or_else(|| WriteErrorInfo::MissingField("$type".to_string()))?;
 
             writer.path.pop();
+
+            if variant_type == base_type && variant_type.field_count == 0 {
+                writer.write_u32(0)?;
+                writer.write_u32(0)?;
+                writer.write_u32(0)?;
+
+                return Ok(());
+            }
 
             // parse $value
 
