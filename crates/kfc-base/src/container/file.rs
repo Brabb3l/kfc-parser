@@ -1,47 +1,54 @@
-use std::{collections::{HashMap, HashSet}, fs::File, io::{BufReader, Read, Seek, SeekFrom, Write}, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    fs::File,
+    io::{BufReader, Read, Seek, SeekFrom, Write},
+    path::Path,
+};
 
-use crate::{guid::{BlobGuid, DescriptorGuid}, io::{ReadExt, WriteExt, WriteSeekExt}, reflection::{LookupKey, TypeRegistry}, Hash32};
+use crate::{
+    Hash32,
+    guid::{ContentHash, ResourceId},
+    io::{ReadExt, WriteExt, WriteSeekExt},
+    reflection::{LookupKey, TypeRegistry},
+};
 
-use super::{header::*, KFCReadError, KFCWriteError, StaticMap, StaticMapBucket};
+use super::{KFCReadError, KFCWriteError, StaticMap, StaticMapBucket, header::*};
 
 #[derive(Debug, Clone)]
 pub struct KFCFile {
     version: String,
 
-    dat_infos: Vec<DatInfo>,
-    descriptor_locations: Vec<DescriptorLocation>,
+    containers: Vec<ContainerInfo>,
+    resource_locations: Vec<ResourceLocation>,
 
-    blobs: StaticMap<BlobGuid, BlobLink>,
-    descriptors: StaticMap<DescriptorGuid, DescriptorLink>,
+    contents: StaticMap<ContentHash, ContentEntry>,
+    resources: StaticMap<ResourceId, ResourceEntry>,
 
-    descriptor_indices: Vec<u32>,
-    groups: StaticMap<Hash32, GroupInfo>,
+    resource_indices: Vec<u32>,
+    resource_bundles: StaticMap<Hash32, ResourceBundleEntry>,
 }
 
 impl Default for KFCFile {
-
     fn default() -> Self {
         Self {
-            descriptor_locations: vec![DescriptorLocation::default()],
+            resource_locations: vec![ResourceLocation::default()],
 
             version: String::default(),
-            dat_infos: Vec::default(),
+            containers: Vec::default(),
 
-            blobs: StaticMap::default(),
-            descriptors: StaticMap::default(),
+            contents: StaticMap::default(),
+            resources: StaticMap::default(),
 
-            descriptor_indices: Vec::default(),
-            groups: StaticMap::default(),
+            resource_indices: Vec::default(),
+            resource_bundles: StaticMap::default(),
         }
     }
-
 }
 
 impl KFCFile {
-
     pub fn from_path<P: AsRef<Path>>(
         path: P,
-        skip_entries: bool,
+        skip_entries: bool
     ) -> Result<Self, KFCReadError> {
         let file = File::open(path)?;
         let mut reader = BufReader::new(file);
@@ -55,7 +62,9 @@ impl KFCFile {
         Self::read(reader, skip_entries)
     }
 
-    pub fn get_version_tag<P: AsRef<Path>>(path: P) -> Result<String, KFCReadError> {
+    pub fn get_version_tag<P: AsRef<Path>>(
+        path: P
+    ) -> Result<String, KFCReadError> {
         let file = File::open(path)?;
         let mut reader = BufReader::new(file);
         let header = KFCHeader::read(&mut reader)?;
@@ -65,70 +74,18 @@ impl KFCFile {
     }
 
     #[inline]
-    pub fn get_descriptor_guids(&self) -> &[DescriptorGuid] {
-        self.descriptors.keys()
+    pub fn resources(&self) -> &StaticMap<ResourceId, ResourceEntry> {
+        &self.resources
     }
 
     #[inline]
-    pub fn get_descriptor_link(&self, guid: &DescriptorGuid) -> Option<&DescriptorLink> {
-        self.descriptors.get(guid)
+    pub fn resource_bundles(&self) -> &StaticMap<Hash32, ResourceBundleEntry> {
+        &self.resource_bundles
     }
 
     #[inline]
-    pub fn get_descriptor_iter(&self) -> impl Iterator<Item = (&DescriptorGuid, &DescriptorLink)> {
-        self.descriptors.iter()
-    }
-
-    #[inline]
-    pub fn get_descriptor_map(&self) -> &StaticMap<DescriptorGuid, DescriptorLink> {
-        &self.descriptors
-    }
-
-    #[inline]
-    pub fn contains_descriptor(&self, guid: &DescriptorGuid) -> bool {
-        self.descriptors.contains_key(guid)
-    }
-
-    #[inline]
-    pub fn get_descriptor_types(&self) -> &[Hash32] {
-        self.groups.keys()
-    }
-
-    pub fn get_descriptor_guids_by_type_hash(&self, type_hash: Hash32) -> impl Iterator<Item = &DescriptorGuid> {
-        self.groups.get(&type_hash)
-            .map(|info| {
-                let start = info.index;
-                let end = start + info.count;
-                &self.descriptor_indices[start..end]
-            })
-            .unwrap_or_default()
-            .iter()
-            .map(|&index| &self.descriptors.keys()[index as usize])
-    }
-
-    #[inline]
-    pub fn get_blob_guids(&self) -> &[BlobGuid] {
-        self.blobs.keys()
-    }
-
-    #[inline]
-    pub fn get_blob_link(&self, guid: &BlobGuid) -> Option<&BlobLink> {
-        self.blobs.get(guid)
-    }
-
-    #[inline]
-    pub fn get_blob_iter(&self) -> impl Iterator<Item = (&BlobGuid, &BlobLink)> {
-        self.blobs.iter()
-    }
-
-    #[inline]
-    pub fn get_blob_map(&self) -> &StaticMap<BlobGuid, BlobLink> {
-        &self.blobs
-    }
-
-    #[inline]
-    pub fn contains_blob(&self, guid: &BlobGuid) -> bool {
-        self.blobs.contains_key(guid)
+    pub fn contents(&self) -> &StaticMap<ContentHash, ContentEntry> {
+        &self.contents
     }
 
     #[inline]
@@ -138,36 +95,69 @@ impl KFCFile {
 
     #[inline]
     pub fn data_offset(&self) -> u64 {
-        self.descriptor_locations[0].offset
+        self.resource_locations[0].offset
     }
 
     #[inline]
     pub fn data_size(&self) -> u64 {
-        self.descriptor_locations[0].size
+        self.resource_locations[0].size
     }
 
     #[inline]
-    pub fn get_dat_infos(&self) -> &[DatInfo] {
-        &self.dat_infos
+    pub fn containers(&self) -> &[ContainerInfo] {
+        &self.containers
+    }
+
+    pub fn resource_types(&self) -> impl Iterator<Item = Hash32> {
+        self.resource_bundles.values().iter().filter_map(|info| {
+            let start = info.index;
+            let end = start + info.count;
+            let resource_indices = &self.resource_indices[start..end];
+
+            if resource_indices.is_empty() {
+                return None;
+            }
+
+            Some(self.resources.keys()[resource_indices[0] as usize].type_hash())
+        })
+    }
+
+    pub fn resources_by_type(&self, type_hash: Hash32) -> impl Iterator<Item = &ResourceId> {
+        self.resource_bundles
+            .get(&type_hash)
+            .map(|info| {
+                let start = info.index;
+                let end = start + info.count;
+                &self.resource_indices[start..end]
+            })
+            .unwrap_or_default()
+            .iter()
+            .map(|&index| &self.resources.keys()[index as usize])
     }
 
     // mutators
 
-    pub fn set_descriptors(
+    pub fn set_resources(
         &mut self,
-        descriptors: StaticMap<DescriptorGuid, DescriptorLink>,
+        resources: StaticMap<ResourceId, ResourceEntry>,
         type_registry: &TypeRegistry,
     ) {
-        self.descriptors = descriptors;
-        self.rebuild_groups(type_registry);
+        self.resources = resources;
+        self.rebuild_resource_bundles(type_registry);
     }
 
-    pub fn set_blobs(&mut self, blobs: StaticMap<BlobGuid, BlobLink>) {
-        self.blobs = blobs;
+    pub fn set_contents(
+        &mut self,
+        contents: StaticMap<ContentHash, ContentEntry>
+    ) {
+        self.contents = contents;
     }
 
-    pub fn set_dat_infos(&mut self, dat_infos: Vec<DatInfo>) {
-        self.dat_infos = dat_infos;
+    pub fn set_containers(
+        &mut self,
+        containers: Vec<ContainerInfo>
+    ) {
+        self.containers = containers;
     }
 
     pub fn set_game_version(&mut self, version: String) {
@@ -175,25 +165,35 @@ impl KFCFile {
     }
 
     pub fn set_data_location(&mut self, offset: u64, size: u64) {
-        self.descriptor_locations[0].offset = offset;
-        self.descriptor_locations[0].size = size;
-        self.descriptor_locations[0].count = self.descriptors.len();
+        self.resource_locations[0].offset = offset;
+        self.resource_locations[0].size = size;
+        self.resource_locations[0].count = self.resources.len();
     }
 
-    fn rebuild_groups(&mut self, type_registry: &TypeRegistry) {
-        let mut type_hashes = self.descriptors.keys()
+    fn rebuild_resource_bundles(&mut self, type_registry: &TypeRegistry) {
+        let mut type_hashes = self
+            .resources
+            .keys()
             .iter()
-            .map(|guid| guid.type_hash)
+            .map(|guid| guid.type_hash())
             .collect::<HashSet<_>>()
             .into_iter()
-            .map(|hash| (hash, GroupInfo {
-                // TODO: Remove unwrap
-                internal_hash: type_registry.get_by_hash(LookupKey::Qualified(hash)).unwrap().internal_hash,
-                ..Default::default()
-            }))
+            .map(|hash| {
+                (
+                    hash,
+                    ResourceBundleEntry {
+                        // TODO: Remove unwrap
+                        internal_hash: type_registry
+                            .get_by_hash(LookupKey::Qualified(hash))
+                            .unwrap()
+                            .internal_hash,
+                        ..Default::default()
+                    },
+                )
+            })
             .collect::<Vec<_>>();
 
-        let mut indices = Vec::with_capacity(self.descriptors.len());
+        let mut indices = Vec::with_capacity(self.resources.len());
 
         for (hash, info) in type_hashes.iter_mut() {
             info.index = indices.len();
@@ -201,8 +201,8 @@ impl KFCFile {
             let hash = *hash;
             let mut count = 0;
 
-            for (i, (guid, _)) in self.descriptors.iter().enumerate() {
-                if guid.type_hash == hash {
+            for (i, (guid, _)) in self.resources.iter().enumerate() {
+                if guid.type_hash() == hash {
                     indices.push(i as u32);
                     count += 1;
                 }
@@ -211,14 +211,12 @@ impl KFCFile {
             info.count = count;
         }
 
-        self.descriptor_indices = indices;
-        self.groups = type_hashes.into_iter().collect::<HashMap<_, _>>().into();
+        self.resource_indices = indices;
+        self.resource_bundles = type_hashes.into_iter().collect::<HashMap<_, _>>().into();
     }
-
 }
 
 impl KFCFile {
-
     fn read<R: Read + Seek>(reader: &mut R, skip_entries: bool) -> Result<Self, KFCReadError> {
         let header = KFCHeader::read(reader)?;
 
@@ -226,108 +224,96 @@ impl KFCFile {
         reader.seek(SeekFrom::Start(header.version.offset))?;
         let version = reader.read_string(header.version.count)?;
 
-        // dat infos
-        reader.seek(SeekFrom::Start(header.dat_infos.offset))?;
-        let dat_infos = (0..header.dat_infos.count)
-            .map(|_| DatInfo::read(reader))
+        // containers
+        reader.seek(SeekFrom::Start(header.containers.offset))?;
+        let containers = (0..header.containers.count)
+            .map(|_| ContainerInfo::read(reader))
             .collect::<Result<Vec<_>, _>>()?;
 
-        // descriptor locations
-        reader.seek(SeekFrom::Start(header.descriptor_locations.offset))?;
-        let descriptor_locations = (0..header.descriptor_locations.count)
-            .map(|_| DescriptorLocation::read(reader))
+        // resource locations
+        reader.seek(SeekFrom::Start(header.resource_locations.offset))?;
+        let resource_locations = (0..header.resource_locations.count)
+            .map(|_| ResourceLocation::read(reader))
             .collect::<Result<Vec<_>, _>>()?;
 
         if !skip_entries {
-            // group indices
-            reader.seek(SeekFrom::Start(header.descriptor_indices.offset))?;
-            let descriptor_indices = (0..header.descriptor_indices.count)
+            // resource indices
+            reader.seek(SeekFrom::Start(header.resource_indices.offset))?;
+            let resource_indices = (0..header.resource_indices.count)
                 .map(|_| reader.read_u32())
                 .collect::<Result<Vec<_>, _>>()?;
 
-            // blob static map
+            // content static map
 
-            reader.seek(SeekFrom::Start(header.blob_buckets.offset))?;
-            let blob_buckets = (0..header.blob_buckets.count)
+            reader.seek(SeekFrom::Start(header.content_buckets.offset))?;
+            let content_buckets = (0..header.content_buckets.count)
                 .map(|_| StaticMapBucket::read(reader))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            reader.seek(SeekFrom::Start(header.blob_guids.offset))?;
-            let blob_guids = (0..header.blob_guids.count)
-                .map(|_| BlobGuid::read(reader))
+            reader.seek(SeekFrom::Start(header.content_keys.offset))?;
+            let content_keys = (0..header.content_keys.count)
+                .map(|_| ContentHash::read(reader))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            reader.seek(SeekFrom::Start(header.blob_links.offset))?;
-            let blob_links = (0..header.blob_links.count)
-                .map(|_| BlobLink::read(reader))
+            reader.seek(SeekFrom::Start(header.content_values.offset))?;
+            let content_values = (0..header.content_values.count)
+                .map(|_| ContentEntry::read(reader))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            // descriptor static map
+            // resource static map
 
-            reader.seek(SeekFrom::Start(header.descriptor_buckets.offset))?;
-            let descriptor_buckets = (0..header.descriptor_buckets.count)
+            reader.seek(SeekFrom::Start(header.resource_buckets.offset))?;
+            let resource_buckets = (0..header.resource_buckets.count)
                 .map(|_| StaticMapBucket::read(reader))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            reader.seek(SeekFrom::Start(header.descriptor_guids.offset))?;
-            let descriptor_guids = (0..header.descriptor_guids.count)
-                .map(|_| DescriptorGuid::read(reader))
+            reader.seek(SeekFrom::Start(header.resource_keys.offset))?;
+            let resource_keys = (0..header.resource_keys.count)
+                .map(|_| ResourceId::read(reader))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            reader.seek(SeekFrom::Start(header.descriptor_links.offset))?;
-            let descriptor_links = (0..header.descriptor_links.count)
-                .map(|_| DescriptorLink::read(reader))
+            reader.seek(SeekFrom::Start(header.resource_values.offset))?;
+            let resource_values = (0..header.resource_values.count)
+                .map(|_| ResourceEntry::read(reader))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            // group static map
+            // resource_bundle static map
 
-            reader.seek(SeekFrom::Start(header.group_buckets.offset))?;
-            let group_buckets = (0..header.group_buckets.count)
+            reader.seek(SeekFrom::Start(header.resource_bundle_buckets.offset))?;
+            let resource_bundle_buckets = (0..header.resource_bundle_buckets.count)
                 .map(|_| StaticMapBucket::read(reader))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            reader.seek(SeekFrom::Start(header.group_hashes.offset))?;
-            let group_guids = (0..header.group_hashes.count)
+            reader.seek(SeekFrom::Start(header.resource_bundle_keys.offset))?;
+            let resource_bundle_keys = (0..header.resource_bundle_keys.count)
                 .map(|_| reader.read_u32())
                 .collect::<Result<Vec<_>, _>>()?;
 
-            reader.seek(SeekFrom::Start(header.group_infos.offset))?;
-            let group_links = (0..header.group_infos.count)
-                .map(|_| GroupInfo::read(reader))
+            reader.seek(SeekFrom::Start(header.resource_bundle_values.offset))?;
+            let resource_bundle_values = (0..header.resource_bundle_values.count)
+                .map(|_| ResourceBundleEntry::read(reader))
                 .collect::<Result<Vec<_>, _>>()?;
 
             Ok(Self {
                 version,
-                dat_infos,
+                containers,
 
-                descriptor_locations,
-                descriptor_indices,
+                resource_locations,
+                resource_indices,
 
-                blobs: StaticMap::from_parts(
-                    blob_guids,
-                    blob_links,
-                    blob_buckets,
-                )?,
-                descriptors: StaticMap::from_parts(
-                    descriptor_guids,
-                    descriptor_links,
-                    descriptor_buckets,
-                )?,
-                groups: StaticMap::from_parts(
-                    group_guids,
-                    group_links,
-                    group_buckets,
-                )?,
+                contents: StaticMap::from_parts(content_keys, content_values, content_buckets)?,
+                resources: StaticMap::from_parts(resource_keys, resource_values, resource_buckets)?,
+                resource_bundles: StaticMap::from_parts(resource_bundle_keys, resource_bundle_values, resource_bundle_buckets)?,
             })
         } else {
             Ok(Self {
                 version,
-                dat_infos: Vec::new(),
-                descriptor_locations,
-                descriptor_indices: Vec::new(),
-                blobs: StaticMap::default(),
-                descriptors: StaticMap::default(),
-                groups: StaticMap::default(),
+                containers: Vec::new(),
+                resource_locations,
+                resource_indices: Vec::new(),
+                contents: StaticMap::default(),
+                resources: StaticMap::default(),
+                resource_bundles: StaticMap::default(),
             })
         }
     }
@@ -345,82 +331,82 @@ impl KFCFile {
         writer.write_string(&self.version, self.version.len())?;
         writer.align(8)?;
 
-        // dat infos
-        let dat_infos_offset = writer.stream_position()?;
-        for dat_info in &self.dat_infos {
-            dat_info.write(writer)?;
+        // containers
+        let containers_offset = writer.stream_position()?;
+        for container in &self.containers {
+            container.write(writer)?;
         }
         writer.align(8)?;
 
-        // descriptor locations
-        let descriptor_locations_offset = writer.stream_position()?;
-        DescriptorLocation::default().write(writer)?;
+        // obejct locations
+        let resource_locations_offset = writer.stream_position()?;
+        ResourceLocation::default().write(writer)?;
 
-        // group indices
-        let descriptor_indices_offset = writer.stream_position()?;
-        for descriptor_index in &self.descriptor_indices {
-            writer.write_u32(*descriptor_index)?;
+        // resource indices
+        let resource_indices_offset = writer.stream_position()?;
+        for resource_index in &self.resource_indices {
+            writer.write_u32(*resource_index)?;
         }
 
-        // blob static map
+        // content static map
 
-        let blob_buckets_offset = writer.stream_position()?;
-        for blob_bucket in self.blobs.buckets() {
-            blob_bucket.write(writer)?;
+        let content_buckets_offset = writer.stream_position()?;
+        for content_bucket in self.contents.buckets() {
+            content_bucket.write(writer)?;
         }
 
-        let blob_guids_offset = writer.stream_position()?;
-        for blob_guid in self.blobs.keys() {
-            blob_guid.write(writer)?;
-        }
-        writer.align(8)?;
-
-        let blob_links_offset = writer.stream_position()?;
-        for blob_link in self.blobs.values() {
-            blob_link.write(writer)?;
-        }
-
-        // descriptor static map
-
-        let descriptor_buckets_offset = writer.stream_position()?;
-        for descriptor_bucket in self.descriptors.buckets() {
-            descriptor_bucket.write(writer)?;
-        }
-
-        let descriptor_guids_offset = writer.stream_position()?;
-        for descriptor_guid in self.descriptors.keys() {
-            descriptor_guid.write(writer)?;
+        let content_keys_offset = writer.stream_position()?;
+        for content_key in self.contents.keys() {
+            content_key.write(writer)?;
         }
         writer.align(8)?;
 
-        let descriptor_links_offset = writer.stream_position()?;
-        for descriptor_link in self.descriptors.values() {
-            descriptor_link.write(writer)?;
+        let content_values_offset = writer.stream_position()?;
+        for content_value in self.contents.values() {
+            content_value.write(writer)?;
         }
 
-        // group static map
+        // resource static map
 
-        let group_buckets_offset = writer.stream_position()?;
-        for group_bucket in self.groups.buckets() {
-            group_bucket.write(writer)?;
+        let resource_buckets_offset = writer.stream_position()?;
+        for resource_bucket in self.resources.buckets() {
+            resource_bucket.write(writer)?;
         }
 
-        let group_hashes_offset = writer.stream_position()?;
-        for group_hash in self.groups.keys() {
-            writer.write_u32(*group_hash)?;
+        let resource_keys_offset = writer.stream_position()?;
+        for resource_key in self.resources.keys() {
+            resource_key.write(writer)?;
+        }
+        writer.align(8)?;
+
+        let resource_values_offset = writer.stream_position()?;
+        for resource_value in self.resources.values() {
+            resource_value.write(writer)?;
         }
 
-        let group_infos_offset = writer.stream_position()?;
-        for group_info in self.groups.values() {
-            group_info.write(writer)?;
+        // resource_bundle static map
+
+        let resource_bundle_buckets_offset = writer.stream_position()?;
+        for resource_bundle_bucket in self.resource_bundles.buckets() {
+            resource_bundle_bucket.write(writer)?;
+        }
+
+        let resource_bundle_keys_offset = writer.stream_position()?;
+        for resource_bundle_key in self.resource_bundles.keys() {
+            writer.write_u32(*resource_bundle_key)?;
+        }
+
+        let resource_bundle_values_offset = writer.stream_position()?;
+        for resource_bundle_value in self.resource_bundles.values() {
+            resource_bundle_value.write(writer)?;
         }
 
         let size = writer.stream_position()?;
 
-        // DescriptorLocation
-        writer.seek(SeekFrom::Start(descriptor_locations_offset))?;
-        for descriptor_location in &self.descriptor_locations {
-            descriptor_location.write(writer)?;
+        // resource locations (update)
+        writer.seek(SeekFrom::Start(resource_locations_offset))?;
+        for resource_location in &self.resource_locations {
+            resource_location.write(writer)?;
         }
 
         // KFCHeader
@@ -428,22 +414,25 @@ impl KFCFile {
             size,
 
             version: KFCLocation::new(version_offset, self.version.len()),
-            dat_infos: KFCLocation::new(dat_infos_offset, self.dat_infos.len()),
+            containers: KFCLocation::new(containers_offset, self.containers.len()),
 
-            descriptor_locations: KFCLocation::new(descriptor_locations_offset, self.descriptor_locations.len()),
-            descriptor_indices: KFCLocation::new(descriptor_indices_offset, self.descriptor_indices.len()),
+            resource_locations: KFCLocation::new(
+                resource_locations_offset,
+                self.resource_locations.len(),
+            ),
+            resource_indices: KFCLocation::new(resource_indices_offset, self.resource_indices.len()),
 
-            blob_buckets: KFCLocation::new(blob_buckets_offset, self.blobs.buckets().len()),
-            blob_guids: KFCLocation::new(blob_guids_offset, self.blobs.len()),
-            blob_links: KFCLocation::new(blob_links_offset, self.blobs.len()),
+            content_buckets: KFCLocation::new(content_buckets_offset, self.contents.buckets().len()),
+            content_keys: KFCLocation::new(content_keys_offset, self.contents.len()),
+            content_values: KFCLocation::new(content_values_offset, self.contents.len()),
 
-            descriptor_buckets: KFCLocation::new(descriptor_buckets_offset, self.descriptors.buckets().len()),
-            descriptor_guids: KFCLocation::new(descriptor_guids_offset, self.descriptors.len()),
-            descriptor_links: KFCLocation::new(descriptor_links_offset, self.descriptors.len()),
+            resource_buckets: KFCLocation::new(resource_buckets_offset, self.resources.buckets().len()),
+            resource_keys: KFCLocation::new(resource_keys_offset, self.resources.len()),
+            resource_values: KFCLocation::new(resource_values_offset, self.resources.len()),
 
-            group_buckets: KFCLocation::new(group_buckets_offset, self.groups.buckets().len()),
-            group_hashes: KFCLocation::new(group_hashes_offset, self.groups.len()),
-            group_infos: KFCLocation::new(group_infos_offset, self.groups.len()),
+            resource_bundle_buckets: KFCLocation::new(resource_bundle_buckets_offset, self.resource_bundles.buckets().len()),
+            resource_bundle_keys: KFCLocation::new(resource_bundle_keys_offset, self.resource_bundles.len()),
+            resource_bundle_values: KFCLocation::new(resource_bundle_values_offset, self.resource_bundles.len()),
 
             ..Default::default()
         };
@@ -455,5 +444,4 @@ impl KFCFile {
 
         Ok(())
     }
-
 }

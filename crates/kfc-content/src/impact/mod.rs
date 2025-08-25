@@ -1,8 +1,8 @@
 mod nodes;
-mod descriptor;
+mod object;
 
 pub mod graph;
 pub mod bytecode;
 
 pub use nodes::*;
-pub use descriptor::*;
+pub use object::*;

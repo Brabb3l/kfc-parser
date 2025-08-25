@@ -2,7 +2,7 @@ use std::borrow::Borrow;
 
 use indexmap::IndexMap;
 use kfc::{
-    guid::BlobGuid,
+    guid::Guid,
     reflection::{TypeMetadata, TypeRegistry},
 };
 
@@ -305,7 +305,7 @@ impl Value {
     }
 
     #[inline]
-    fn from_guid(guid: BlobGuid, options: &ConversionOptions) -> Self {
+    fn from_guid(guid: Guid, options: &ConversionOptions) -> Self {
         if guid.is_none() {
             Self::None
         } else if options.guid_as_string {

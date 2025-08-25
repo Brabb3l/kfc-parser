@@ -6,7 +6,7 @@ use std::{
 
 use indexmap::IndexMap;
 use kfc::{
-    guid::BlobGuid,
+    guid::Guid,
     io::WriteExt,
     reflection::{LookupKey, PrimitiveType, TypeIndex, TypeMetadata, TypeRegistry},
 };
@@ -963,15 +963,15 @@ impl Value {
     ///
     /// Accepts the following values:
     /// - `None` - writes a zero GUID.
-    /// - `BlobGuid` - writes the GUID directly.
-    /// - `String` - parses the string into a `BlobGuid` and writes it.
+    /// - `Guid` - writes the GUID directly.
+    /// - `String` - parses the string into a `Guid` and writes it.
     ///
     /// # Layout
-    /// See [BlobGuid::write].
+    /// See [Guid::write].
     #[inline]
     fn write_guid<W: Write + Seek>(&self, writer: &mut Writer<W>) -> Result<(), WriteErrorInfo> {
         if self.is_none() {
-            BlobGuid::NONE.write(writer.deref_mut())?;
+            Guid::NONE.write(writer.deref_mut())?;
             return Ok(());
         }
 
@@ -979,7 +979,7 @@ impl Value {
             value.write(writer.deref_mut())?;
             return Ok(());
         } else if let Some(value) = self.as_string() {
-            BlobGuid::parse(value)
+            Guid::parse(value)
                 .ok_or_else(|| WriteErrorInfo::MalformedGuid(value.clone()))?
                 .write(writer.deref_mut())?;
 

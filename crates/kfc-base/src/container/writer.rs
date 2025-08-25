@@ -1,11 +1,11 @@
 use std::{borrow::Borrow, fs::File, io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write}, path::{Path, PathBuf}};
 
-use crate::{guid::{BlobGuid, DescriptorGuid}, io::{WriteExt, WriteSeekExt}, reflection::TypeRegistry};
+use crate::{guid::{ContentHash, ResourceId}, io::{WriteExt, WriteSeekExt}, reflection::TypeRegistry};
 
-use super::{header::{BlobLink, DatInfo, DescriptorLink}, KFCFile, KFCReadError, KFCWriteError, StaticMapBuilder};
+use super::{header::{ContentEntry, ContainerInfo, ResourceEntry}, KFCFile, KFCReadError, KFCWriteError, StaticMapBuilder};
 
-const DESCRIPTOR_ALIGNMENT: u64 = 16;
-const BLOB_ALIGNMENT: u64 = 4096;
+const RESOURCE_ALIGNMENT: u64 = 16;
+const CONTENT_ALIGNMENT: u64 = 4096;
 
 pub struct KFCWriter<F, T> {
     path: PathBuf,
@@ -13,11 +13,11 @@ pub struct KFCWriter<F, T> {
 
     file: File,
     data_writer: Cursor<Vec<u8>>,
-    dat_writers: Vec<DatWriter>,
+    container_writers: Vec<ContainerWriter>,
 
     game_version: String,
-    descriptors: StaticMapBuilder<DescriptorGuid, DescriptorLink>,
-    blobs: StaticMapBuilder<BlobGuid, BlobLink>,
+    resources: StaticMapBuilder<ResourceId, ResourceEntry>,
+    contents: StaticMapBuilder<ContentHash, ContentEntry>,
 
     incremental_data: Option<IncrementalData<F>>,
     options: KFCWriteOptions,
@@ -36,26 +36,26 @@ pub struct KFCWriteOptions {
     /// If true, the writer will overwrite existing data in the .dat files,
     /// instead of causing an error.
     /// **NOTE:** For incremental writes, this will only affect non-default .dat files.
-    pub overwrite_dat: bool,
+    pub overwrite_containers: bool,
     /// The amount of header bytes to reserve for incremental writes.
-    /// This is used to prevent moving existing descriptor data around excessively.
+    /// This is used to prevent moving existing resource data around excessively.
     pub incremental_reserve: u64,
     // TEST: does the game use a i32, u32 or an artifical limit for the dat max size?
     /// The maximum size of a single .dat file before a new one is created.
-    pub max_dat_size: u32,
+    pub max_container_size: u32,
     /// Whether to truncate existing .dat files or not.
     /// This is used to remove any leftover data from previous writes.
     /// **NOTE:** For incremental writes, this will only affect non-default .dat files.
-    pub truncate_dat: bool,
+    pub truncate_containers: bool,
 }
 
 impl Default for KFCWriteOptions {
     fn default() -> Self {
         Self {
-            overwrite_dat: false,
+            overwrite_containers: false,
             incremental_reserve: 64 * 1024, // 64 KiB
-            max_dat_size: 1024 * 1024 * 1024, // 1 GiB
-            truncate_dat: false,
+            max_container_size: 1024 * 1024 * 1024, // 1 GiB
+            truncate_containers: false,
         }
     }
 }
@@ -94,11 +94,11 @@ where
 
             file,
             data_writer: Cursor::new(Vec::new()),
-            dat_writers: Vec::new(),
+            container_writers: Vec::new(),
 
             game_version: game_version.as_ref().to_string(),
-            descriptors: StaticMapBuilder::default(),
-            blobs: StaticMapBuilder::default(),
+            resources: StaticMapBuilder::default(),
+            contents: StaticMapBuilder::default(),
 
             incremental_data: None,
             options,
@@ -129,11 +129,11 @@ where
         let header_space = current_file.data_offset();
         let file = reference_file.borrow();
         let default_data_size = file.data_size() +
-            (DESCRIPTOR_ALIGNMENT - (file.data_size() % DESCRIPTOR_ALIGNMENT)) % DESCRIPTOR_ALIGNMENT;
+            (RESOURCE_ALIGNMENT - (file.data_size() % RESOURCE_ALIGNMENT)) % RESOURCE_ALIGNMENT;
         let default_data_size_unaligned = file.data_size();
 
-        let descriptors = file.get_descriptor_map().as_builder();
-        let blobs = file.get_blob_map().as_builder();
+        let resources = file.resources().as_builder();
+        let contents = file.contents().as_builder();
 
         drop(current_file);
 
@@ -145,11 +145,11 @@ where
 
             file,
             data_writer: Cursor::new(Vec::new()),
-            dat_writers: Vec::new(),
+            container_writers: Vec::new(),
 
             game_version: reference_file.borrow().game_version().to_string(),
-            descriptors,
-            blobs,
+            resources,
+            contents,
 
             incremental_data: Some(IncrementalData {
                 reference_file,
@@ -178,9 +178,9 @@ where
             .map(|data| data.reference_file.borrow())
     }
 
-    pub fn write_descriptor(
+    pub fn write_resource(
         &mut self,
-        guid: &DescriptorGuid,
+        guid: &ResourceId,
         bytes: &[u8]
     ) -> std::io::Result<()> {
         let base_offset = self.incremental_data.as_ref()
@@ -188,36 +188,36 @@ where
             .unwrap_or(0);
         let offset = self.data_writer.stream_position()? + base_offset;
 
-        self.descriptors.insert(*guid, DescriptorLink {
+        self.resources.insert(*guid, ResourceEntry {
             offset,
             size: bytes.len() as u64
         });
 
         self.data_writer.write_all(bytes)?;
-        self.data_writer.align(DESCRIPTOR_ALIGNMENT as usize)?;
+        self.data_writer.align(RESOURCE_ALIGNMENT as usize)?;
 
         Ok(())
     }
 
-    pub fn write_blob(
+    pub fn write_content(
         &mut self,
-        guid: &BlobGuid,
+        guid: &ContentHash,
         data: &[u8],
     ) -> std::io::Result<()> {
         if guid.size() != data.len() as u32 {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Blob size mismatch"));
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Content size mismatch"));
         }
 
-        let dat_writer = self.get_dat_writer()?;
-        let index = dat_writer.index;
+        let container_writer = self.get_container_writer()?;
+        let index = container_writer.index;
 
-        let writer = dat_writer.aquire()?;
+        let writer = container_writer.aquire()?;
         let offset = writer.stream_position()?;
 
         writer.write_all(data)?;
-        writer.align(BLOB_ALIGNMENT as usize)?;
+        writer.align(CONTENT_ALIGNMENT as usize)?;
 
-        self.blobs.insert(*guid, BlobLink::new(offset, 0, index));
+        self.contents.insert(*guid, ContentEntry::new(offset, 0, index));
 
         Ok(())
     }
@@ -228,37 +228,37 @@ where
             .unwrap_or(0);
         let size = base_size + self.data_writer.stream_position()?;
 
-        // prepare dat infos
+        // prepare container infos
 
-        let mut dat_infos = self.incremental_data.as_ref()
-            .map(|data| data.reference_file.borrow().get_dat_infos().to_vec())
+        let mut containers = self.incremental_data.as_ref()
+            .map(|data| data.reference_file.borrow().containers().to_vec())
             .unwrap_or_default();
 
-        dat_infos.reserve_exact(self.dat_writers.len());
+        containers.reserve_exact(self.container_writers.len());
 
-        self.dat_writers.sort_by_key(|dat_writer| dat_writer.index);
+        self.container_writers.sort_by_key(|w| w.index);
 
-        for dat_writer in &mut self.dat_writers {
-            dat_writer.flush()?;
+        for container_writer in &mut self.container_writers {
+            container_writer.flush()?;
 
-            dat_infos.push(DatInfo {
-                size: dat_writer.position()?,
-                count: dat_writer.count,
+            containers.push(ContainerInfo {
+                size: container_writer.position()?,
+                count: container_writer.count,
             });
         }
 
-        // make sure to have a power of two dat files
+        // make sure to have a power of two container files
 
-        let required_dat_count = dat_infos.len().next_power_of_two();
+        let required_container_count = containers.len().next_power_of_two();
 
-        while dat_infos.len() < required_dat_count {
-            let path = self.get_dat_file_path(dat_infos.len());
+        while containers.len() < required_container_count {
+            let path = self.get_container_file_path(containers.len());
 
-            if !path.exists() || self.options.truncate_dat {
+            if !path.exists() || self.options.truncate_containers {
                 File::create(path)?;
             }
 
-            dat_infos.push(DatInfo {
+            containers.push(ContainerInfo {
                 size: 0,
                 count: 0,
             });
@@ -270,9 +270,9 @@ where
         let mut file = KFCFile::default();
 
         file.set_game_version(self.game_version);
-        file.set_descriptors(self.descriptors.build(), self.type_registry.borrow());
-        file.set_blobs(self.blobs.build());
-        file.set_dat_infos(dat_infos);
+        file.set_resources(self.resources.build(), self.type_registry.borrow());
+        file.set_contents(self.contents.build());
+        file.set_containers(containers);
         file.set_data_location(0, size);
 
         file.write(&mut header_writer)?;
@@ -283,9 +283,9 @@ where
             let mut padding = 0;
 
             while available_header_space < header_size {
-                // add 64KiB padding to reduce consecutive default data movement
-                padding += 0x10000;
-                available_header_space += 0x10000;
+                // add padding to reduce consecutive default data movement
+                padding += self.options.incremental_reserve;
+                available_header_space += self.options.incremental_reserve;
             }
 
             file.set_data_location(available_header_space, size);
@@ -326,27 +326,25 @@ where
         Ok(())
     }
 
-    fn get_dat_writer(&mut self) -> std::io::Result<&mut DatWriter> {
-        if !self.dat_writers.is_empty() {
-            let writer = self.dat_writers.last_mut().unwrap();
+    fn get_container_writer(&mut self) -> std::io::Result<&mut ContainerWriter> {
+        if !self.container_writers.is_empty() {
+            let writer = self.container_writers.last_mut().unwrap();
             let pos = writer.position()?;
 
-            const MAX_DAT_SIZE: u64 = 1024 * 1024 * 1024; // 1 GiB
-
-            if pos < MAX_DAT_SIZE {
-                return Ok(self.dat_writers.last_mut().unwrap());
+            if pos < self.options.max_container_size as u64 {
+                return Ok(self.container_writers.last_mut().unwrap());
             }
         }
 
-        // create a new dat writer
+        // create a new container writer
 
         let base_index = self.incremental_data.as_ref()
-            .map(|data| data.reference_file.borrow().get_dat_infos().len())
+            .map(|data| data.reference_file.borrow().containers().len())
             .unwrap_or(0);
-        let next_index = base_index + self.dat_writers.len();
-        let path = self.get_dat_file_path(next_index);
+        let next_index = base_index + self.container_writers.len();
+        let path = self.get_container_file_path(next_index);
 
-        if !self.options.overwrite_dat && path.exists() {
+        if !self.options.overwrite_containers && path.exists() {
             // make sure we don't accidentally overwrite an existing file
             return Err(std::io::Error::new(
                 std::io::ErrorKind::AlreadyExists,
@@ -355,14 +353,14 @@ where
         }
 
         let writer = BufWriter::new(File::create(&path)?);
-        let writer = DatWriter::new(next_index, writer);
+        let writer = ContainerWriter::new(next_index, writer);
 
-        self.dat_writers.push(writer);
+        self.container_writers.push(writer);
 
-        Ok(self.dat_writers.last_mut().unwrap())
+        Ok(self.container_writers.last_mut().unwrap())
     }
 
-    fn get_dat_file_path(&self, index: usize) -> PathBuf {
+    fn get_container_file_path(&self, index: usize) -> PathBuf {
         let mut base_path = self.path.with_extension("").into_os_string();
         base_path.push(format!("_{index:03}.dat"));
         PathBuf::from(base_path)
@@ -370,13 +368,13 @@ where
 
 }
 
-struct DatWriter {
+struct ContainerWriter {
     index: usize,
     count: usize,
     writer: BufWriter<File>,
 }
 
-impl DatWriter {
+impl ContainerWriter {
 
     #[inline]
     fn new(index: usize, writer: BufWriter<File>) -> Self {

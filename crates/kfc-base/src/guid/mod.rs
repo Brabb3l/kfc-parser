@@ -1,6 +1,7 @@
-mod blob;
-mod descriptor;
+mod base;
+mod content;
+mod resource;
 
-pub use blob::*;
-pub use descriptor::*;
-
+pub use base::*;
+pub use content::*;
+pub use resource::*;

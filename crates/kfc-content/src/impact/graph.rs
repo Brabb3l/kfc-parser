@@ -1,4 +1,4 @@
-use kfc_descriptor::value::{ConversionOptions, Value};
+use kfc_resource::value::{ConversionOptions, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

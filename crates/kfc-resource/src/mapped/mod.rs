@@ -1,6 +1,6 @@
 use std::borrow::Borrow;
 
-use kfc::{guid::BlobGuid, reflection::{EnumFieldMetadata, LookupKey, PrimitiveType, TypeHandle, TypeMetadata, TypeRegistry}};
+use kfc::{guid::Guid, reflection::{EnumFieldMetadata, LookupKey, PrimitiveType, TypeHandle, TypeMetadata, TypeRegistry}};
 
 mod error;
 mod util;
@@ -31,7 +31,7 @@ pub enum MappedValue<D, T> {
     Optional(MappedOptional<D, T>),
     Variant(MappedVariant<D, T>),
     Reference(MappedReference<T>),
-    Guid(BlobGuid),
+    Guid(Guid),
 }
 
 impl<D, T> MappedValue<D, T>
@@ -324,7 +324,7 @@ where
     }
 
     #[inline]
-    pub fn as_guid(&self) -> Option<&BlobGuid> {
+    pub fn as_guid(&self) -> Option<&Guid> {
         if let Self::Guid(value) = self {
             Some(value)
         } else {
@@ -602,11 +602,11 @@ where
         data: &D,
         offset: usize,
     ) -> Result<Self, MappingError> {
-        let data = get_bytes(data.borrow(), offset, 16)?.try_into().unwrap();
+        let bytes: &[u8; 16] = get_bytes(data.borrow(), offset, 16)?.try_into().unwrap();
 
         Ok(MappedReference::new(
             r#type.clone(),
-            BlobGuid::new(data),
+            Guid::from(bytes),
         ).into())
     }
 
@@ -615,8 +615,8 @@ where
         data: &D,
         offset: usize,
     ) -> Result<Self, MappingError> {
-        let bytes = get_bytes(data.borrow(), offset, 16)?;
-        let guid = BlobGuid::new(bytes.try_into().unwrap());
+        let bytes: &[u8; 16] = get_bytes(data.borrow(), offset, 16)?.try_into().unwrap();
+        let guid = Guid::from(bytes);
 
         Ok(guid.into())
     }
@@ -1096,7 +1096,7 @@ where
 #[derive(Debug, Clone)]
 pub struct MappedReference<T> {
     r#type: TypeHandle<T>,
-    guid: BlobGuid,
+    guid: Guid,
 }
 
 impl<T> MappedReference<T>
@@ -1104,7 +1104,7 @@ where
     T: Borrow<TypeRegistry> + Clone,
 {
     #[inline]
-    fn new(r#type: TypeHandle<T>, guid: BlobGuid) -> Self {
+    fn new(r#type: TypeHandle<T>, guid: Guid) -> Self {
         Self { r#type, guid }
     }
 
@@ -1114,12 +1114,12 @@ where
     }
 
     #[inline]
-    pub fn guid(&self) -> &BlobGuid {
+    pub fn guid(&self) -> &Guid {
         &self.guid
     }
 
     #[inline]
-    pub fn into_guid(self) -> BlobGuid {
+    pub fn into_guid(self) -> Guid {
         self.guid
     }
 }
@@ -1158,4 +1158,4 @@ impl_from_mapped_value!(MappedString<D>, String);
 impl_from_mapped_value!(MappedOptional<D, T>, Optional);
 impl_from_mapped_value!(MappedVariant<D, T>, Variant);
 impl_from_mapped_value!(MappedReference<T>, Reference);
-impl_from_mapped_value!(BlobGuid, Guid);
+impl_from_mapped_value!(Guid, Guid);

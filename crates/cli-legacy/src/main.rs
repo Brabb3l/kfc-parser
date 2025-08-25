@@ -4,11 +4,11 @@ use clap::Parser;
 use colored::Colorize;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use kfc::container::{KFCFile, KFCReader, KFCWriter};
-use kfc::descriptor::value::Value;
-use kfc::guid::DescriptorGuid;
+use kfc::resource::value::Value;
+use kfc::guid::ResourceId;
 use kfc::reflection::{LookupKey, TypeRegistry};
-use kfc::blob::impact::bytecode::{ImpactAssembler, ImpactProgramData};
-use kfc::blob::impact::{ImpactProgram, TypeRegistryImpactExt};
+use kfc::content::impact::bytecode::{ImpactAssembler, ImpactProgramData};
+use kfc::content::impact::{ImpactProgram, TypeRegistryImpactExt};
 use thiserror::Error;
 use std::collections::HashSet;
 use std::env::current_exe;
@@ -151,7 +151,7 @@ fn unpack(
     enum Filter<'a> {
         All,
         ByType(&'a str),
-        ByGuid(DescriptorGuid)
+        ByGuid(ResourceId)
     }
 
     let mut filters = Vec::new();
@@ -170,7 +170,7 @@ fn unpack(
         } else if let Some(ty) = entry.strip_prefix('t') {
             filters.push(Filter::ByType(ty));
         } else {
-            match DescriptorGuid::parse_qualified(entry) {
+            match ResourceId::parse_qualified(entry) {
                 Some(guid) => filters.push(Filter::ByGuid(guid)),
                 None => fatal!("`{}` is not a valid guid", entry),
             }
@@ -182,7 +182,7 @@ fn unpack(
     for filter in &filters {
         match filter {
             Filter::All => {
-                guids = file.get_descriptor_guids().iter().collect();
+                guids = file.resources().keys().iter().collect();
                 break;
             }
             Filter::ByType(type_name) => {
@@ -193,14 +193,14 @@ fn unpack(
                     }
                 };
 
-                for guid in file.get_descriptor_guids() {
-                    if type_hash == guid.type_hash {
+                for guid in file.resources().keys() {
+                    if type_hash == guid.type_hash() {
                         guids.insert(guid);
                     }
                 }
             }
             Filter::ByGuid(guid) => {
-                if file.contains_descriptor(guid) {
+                if file.resources().contains_key(guid) {
                     guids.insert(guid);
                 } else {
                     fatal!("GUID not found: {}", guid);
@@ -238,7 +238,7 @@ fn unpack_files(
     file: &KFCFile,
     type_registry: &TypeRegistry,
     output_dir: &Path,
-    guids: HashSet<&DescriptorGuid>,
+    guids: HashSet<&ResourceId>,
     thread_count: u8
 ) -> Result<(), Error> {
     let pb = ProgressBar::new(guids.len() as u64);
@@ -301,8 +301,8 @@ fn unpack_files(
                             }
                         };
 
-                        let r#type = type_registry.get_by_hash(LookupKey::Qualified(guid.type_hash))
-                            .ok_or_else(|| anyhow::anyhow!("Type not found: {:0>8x}", guid.type_hash))?;
+                        let r#type = type_registry.get_by_hash(LookupKey::Qualified(guid.type_hash()))
+                            .ok_or_else(|| anyhow::anyhow!("Type not found: {:0>8x}", guid.type_hash()))?;
                         let type_name: &str = &r#type.name;
                         let parent = output_dir.join(type_name);
 
@@ -377,7 +377,7 @@ fn unpack_stdout(
     path: &Path,
     file: &KFCFile,
     type_registry: &TypeRegistry,
-    guids: HashSet<&DescriptorGuid>,
+    guids: HashSet<&ResourceId>,
     thread_count: u8
 ) -> Result<(), Error> {
     let pending_guids = Mutex::new(guids.into_iter().collect::<Vec<_>>());
@@ -687,7 +687,7 @@ fn repack_files(
 
         let writer_handle = s.spawn(move || {
             while let Ok((guid, data)) = rx.recv() {
-                match writer.write_descriptor(&guid, &data) {
+                match writer.write_resource(&guid, &data) {
                     Ok(()) => {},
                     Err(e) => {
                         failed_repacks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -836,7 +836,7 @@ fn repack_stdin(
 
         let writer_handle = s.spawn(move || {
             while let Ok((guid, data)) = rx.recv() {
-                match writer.write_descriptor(&guid, &data) {
+                match writer.write_resource(&guid, &data) {
                     Ok(()) => {},
                     Err(e) => {
                         failed_repacks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -1068,7 +1068,7 @@ fn assemble_impact(
         .or_else(|| output_file.map(|f| f.file_stem().unwrap().to_str().unwrap()))
         .unwrap_or(file_name);
 
-    let guid = match DescriptorGuid::parse_qualified(guid_str) {
+    let guid = match ResourceId::parse_qualified(guid_str) {
         Some(guid) => guid,
         None => {
             if let Some(guid) = guid {
@@ -1125,7 +1125,7 @@ fn assemble_impact(
 
     let impact_program = match program_data.into_program(
         &type_registry,
-        guid.as_blob_guid(),
+        guid.guid().into(),
         ImpactAssembler::assemble(&impact_ops),
         ImpactAssembler::assemble(&shutdown_ops),
     ) {

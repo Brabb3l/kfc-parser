@@ -1,17 +1,17 @@
 use std::borrow::Borrow;
 
-use kfc::{container::{KFCFile, KFCReader}, descriptor::value::{ConversionOptions, Value}, guid::DescriptorGuid, reflection::{LookupKey, TypeRegistry}};
+use kfc::{container::{KFCFile, KFCReader}, resource::value::{ConversionOptions, Value}, guid::ResourceId, reflection::{LookupKey, TypeRegistry}};
 
 pub fn read_descriptor_into<F, T>(
     reader: &mut KFCReader<F, T>,
-    guid: &DescriptorGuid,
+    guid: &ResourceId,
     buf: &mut Vec<u8>
 ) -> anyhow::Result<Option<Value>>
 where
     F: Borrow<KFCFile>,
     T: Borrow<TypeRegistry>
 {
-    if !reader.read_descriptor_into(guid, buf)? {
+    if !reader.read_resource_into(guid, buf)? {
         return Ok(None);
     }
 
@@ -27,7 +27,7 @@ where
 pub fn serialize_descriptor(
     type_registry: &TypeRegistry,
     value: &Value
-) -> anyhow::Result<(DescriptorGuid, Vec<u8>)> {
+) -> anyhow::Result<(ResourceId, Vec<u8>)> {
     let mut result = Vec::new();
 
     serialize_descriptor_into(type_registry, value, &mut result)
@@ -38,7 +38,7 @@ pub fn serialize_descriptor_into(
     type_registry: &TypeRegistry,
     value: &Value,
     dst: &mut Vec<u8>
-) -> anyhow::Result<DescriptorGuid> {
+) -> anyhow::Result<ResourceId> {
     if let Some(obj) = value.as_struct() {
         let type_name = obj.get("$type")
             .and_then(|v| v.as_string())
@@ -52,7 +52,7 @@ pub fn serialize_descriptor_into(
 
         let r#type = type_registry.get_by_name(LookupKey::Qualified(type_name))
             .ok_or_else(|| anyhow::anyhow!("Invalid type: {}", type_name))?;
-        let guid = DescriptorGuid::parse(
+        let guid = ResourceId::parse(
             guid,
             r#type.qualified_hash,
             part
@@ -66,16 +66,16 @@ pub fn serialize_descriptor_into(
 
         Ok(guid)
     } else {
-        Err(anyhow::anyhow!("Root value must be an object"))
+        Err(anyhow::anyhow!("Root value must be an resource"))
     }
 }
 
 pub fn deserialize_descriptor(
     type_registry: &TypeRegistry,
-    guid: &DescriptorGuid,
+    guid: &ResourceId,
     data: &[u8]
 ) -> anyhow::Result<Value> {
-    let r#type = type_registry.get_by_hash(LookupKey::Qualified(guid.type_hash))
+    let r#type = type_registry.get_by_hash(LookupKey::Qualified(guid.type_hash()))
         .ok_or_else(|| anyhow::anyhow!("Type not found for GUID: {}", guid))?;
     let mut result = Value::from_bytes_with_options(
         type_registry,
@@ -87,10 +87,10 @@ pub fn deserialize_descriptor(
     if let Some(obj) = result.as_struct_mut() {
         obj.insert("$type".into(), Value::String(r#type.qualified_name.clone()));
         obj.insert("$guid".into(), Value::String(guid.to_string()));
-        obj.insert("$part".into(), Value::UInt(guid.part_number.into()));
+        obj.insert("$part".into(), Value::UInt(guid.part_index().into()));
 
         Ok(result)
     } else {
-        Err(anyhow::anyhow!("Root value must be an object"))
+        Err(anyhow::anyhow!("Root value must be an resource"))
     }
 }

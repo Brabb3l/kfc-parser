@@ -1,5 +1,5 @@
-mod blob;
+mod content;
 mod fnv;
 
-pub use blob::*;
+pub use content::*;
 pub use fnv::*;

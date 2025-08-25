@@ -1,5 +1,5 @@
 [package]
-name = "kfc-descriptor"
+name = "kfc-resource"
 edition.workspace = true
 version.workspace = true
 authors.workspace = true

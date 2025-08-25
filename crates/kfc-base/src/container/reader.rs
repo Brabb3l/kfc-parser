@@ -1,6 +1,6 @@
-use std::{borrow::Borrow, fs::File, io::{BufReader, Read, Seek, SeekFrom}, path::{Path, PathBuf}};
+use std::{borrow::Borrow, fs::File, io::{BufReader, Read, Result, Seek, SeekFrom}, path::{Path, PathBuf}};
 
-use crate::{guid::{BlobGuid, DescriptorGuid}, reflection::TypeRegistry};
+use crate::{guid::{ContentHash, ResourceId}, reflection::TypeRegistry};
 
 use super::KFCFile;
 
@@ -10,7 +10,12 @@ pub struct KFCReader<F, T> {
     type_registry: T,
 
     reader: BufReader<File>,
-    dat_readers: Vec<Option<BufReader<File>>>,
+    container_readers: Vec<Option<BufReader<File>>>,
+}
+
+#[derive(Debug, Default)]
+pub struct KFCReaderOptions<'a> {
+    pub file_name: Option<std::borrow::Cow<'a, str>>,
 }
 
 impl<F, T> KFCReader<F, T>
@@ -23,15 +28,29 @@ where
         path: P,
         file: F,
         type_registry: T,
-    ) -> std::io::Result<Self> {
+    ) -> Result<Self> {
+        Self::new_with_options(path, file, type_registry, KFCReaderOptions::default())
+    }
+
+    pub fn new_with_options<P: AsRef<Path>>(
+        path: P,
+        file: F,
+        type_registry: T,
+        options: KFCReaderOptions,
+    ) -> Result<Self> {
         let reader = BufReader::new(File::open(&path)?);
+        let path = if let Some(file_name) = options.file_name {
+            path.as_ref().with_file_name(file_name.as_ref())
+        } else {
+            path.as_ref().to_path_buf()
+        };
 
         Ok(Self {
-            path: path.as_ref().into(),
+            path,
             file,
             type_registry,
             reader,
-            dat_readers: Vec::new(),
+            container_readers: Vec::new(),
         })
     }
 
@@ -50,81 +69,84 @@ where
         self.file.borrow()
     }
 
-    pub fn read_descriptor(
+    pub fn read_resource(
         &mut self,
-        guid: &DescriptorGuid
-    ) -> std::io::Result<Option<Vec<u8>>> {
+        guid: &ResourceId
+    ) -> Result<Option<Vec<u8>>> {
         let mut data = Vec::new();
 
-        if !self.read_descriptor_into(guid, &mut data)? {
+        if !self.read_resource_into(guid, &mut data)? {
             return Ok(None);
         }
 
         Ok(Some(data))
     }
 
-    pub fn read_descriptor_into(
+    pub fn read_resource_into(
         &mut self,
-        guid: &DescriptorGuid,
+        guid: &ResourceId,
         dst: &mut Vec<u8>
-    ) -> std::io::Result<bool> {
+    ) -> Result<bool> {
         let file = self.file.borrow();
-        let link = match file.get_descriptor_link(guid) {
-            Some(link) => link,
+        let resource = match file.resources().get(guid) {
+            Some(resource) => resource,
             None => return Ok(false),
         };
 
-        let offset = file.data_offset() + link.offset;
-        dst.resize(link.size as usize, 0);
+        let offset = file.data_offset() + resource.offset;
+        dst.resize(resource.size as usize, 0);
         self.reader.seek(SeekFrom::Start(offset))?;
         self.reader.read_exact(dst)?;
 
         Ok(true)
     }
 
-    pub fn read_blob(&mut self, guid: &BlobGuid) -> std::io::Result<Option<Vec<u8>>> {
+    pub fn read_content(&mut self, guid: &ContentHash) -> Result<Option<Vec<u8>>> {
         let mut data = Vec::new();
 
-        if !self.read_blob_into(guid, &mut data)? {
+        if !self.read_content_into(guid, &mut data)? {
             return Ok(None);
         }
 
         Ok(Some(data))
     }
 
-    pub fn read_blob_into(
+    pub fn read_content_into(
         &mut self,
-        guid: &BlobGuid,
+        guid: &ContentHash,
         dst: &mut Vec<u8>
-    ) -> std::io::Result<bool> {
-        let link = match self.file.borrow().get_blob_link(guid) {
-            Some(link) => link,
+    ) -> Result<bool> {
+        let entry = match self.file.borrow().contents().get(guid) {
+            Some(entry) => entry,
             None => return Ok(false),
         };
 
-        let offset = link.offset;
+        let offset = entry.offset;
         dst.resize(guid.size() as usize, 0);
 
-        let dat_reader = self.get_dat_reader(link.dat_index)?;
+        let container_reader = self.get_container_reader(entry.container_index)?;
 
-        dat_reader.seek(SeekFrom::Start(offset))?;
-        dat_reader.read_exact(dst)?;
+        container_reader.seek(SeekFrom::Start(offset))?;
+        container_reader.read_exact(dst)?;
 
         Ok(true)
     }
 
-    fn get_dat_reader(&mut self, index: usize) -> std::io::Result<&mut BufReader<File>> {
-        if index >= self.dat_readers.len() {
-            self.dat_readers.resize_with(index + 1, || None);
+    fn get_container_reader(
+        &mut self,
+        index: usize
+    ) -> Result<&mut BufReader<File>> {
+        if index >= self.container_readers.len() {
+            self.container_readers.resize_with(index + 1, || None);
         }
 
-        if self.dat_readers[index].is_none() {
+        if self.container_readers[index].is_none() {
             // Format: FILE_NAME_{INDEX}.dat where INDEX is 3 digits with leading zeros
             let path = self.path.with_file_name(format!("{}_{:03}.dat", self.path.file_stem().unwrap().to_string_lossy(), index));
-            self.dat_readers[index] = Some(BufReader::new(File::open(path)?));
+            self.container_readers[index] = Some(BufReader::new(File::open(path)?));
         }
 
-        Ok(self.dat_readers[index].as_mut().unwrap())
+        Ok(self.container_readers[index].as_mut().unwrap())
     }
 
 }

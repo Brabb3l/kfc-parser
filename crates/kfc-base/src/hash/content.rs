@@ -37,7 +37,7 @@ fn get_block(data: &[u8], offset: usize) -> &[u8; 16] {
 }
 
 #[must_use]
-pub fn compute_blob_guid(
+pub fn compute_content_guid(
     data: &[u8],
     seed: u64,
 ) -> [u8; 16] {

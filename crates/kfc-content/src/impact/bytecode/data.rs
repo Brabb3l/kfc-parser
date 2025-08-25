@@ -1,10 +1,10 @@
-use kfc_descriptor::value::{ConversionOptions, Value};
+use kfc_resource::value::{ConversionOptions, Value};
 use serde::{Deserialize, Serialize};
 use std::cmp::max;
 use std::collections::HashMap;
 
 use kfc::hash::fnv;
-use kfc::guid::BlobGuid;
+use kfc::guid::ContentHash;
 use kfc::reflection::{LookupKey, TypeRegistry};
 
 use crate::hash_types::HashKey32;
@@ -110,7 +110,7 @@ impl ImpactProgramData {
     pub fn into_program(
         self,
         type_collection: &TypeRegistry,
-        guid: BlobGuid,
+        guid: ContentHash,
         code: Vec<ImpactCommand>,
         code_shutdown: Vec<ImpactCommand>,
     ) -> anyhow::Result<ImpactProgram> {

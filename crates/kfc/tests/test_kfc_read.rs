@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::PathBuf};
 
-use kfc::{container::KFCReader, guid::BlobGuid};
+use kfc::{container::KFCReader, guid::ContentHash};
 use kfc_base::{container::KFCFile, reflection::{LookupKey, TypeRegistry}};
 
 fn get_game_dir() -> PathBuf {
@@ -25,92 +25,92 @@ fn test_validate_kfc() -> Result<(), Box<dyn std::error::Error>> {
     let kfc_file = KFCFile::from_path(&kfc_path, false)?;
     let mut reader = KFCReader::new(&kfc_path, &kfc_file, &type_registry)?;
 
-    // check type registry for valid descriptor types
-    for guid in kfc_file.get_descriptor_guids() {
-        let type_hash = guid.type_hash;
+    // check type registry for valid resource types
+    for guid in kfc_file.resources().keys() {
+        let type_hash = guid.type_hash();
         let r#type = type_registry.get_by_hash(LookupKey::Qualified(type_hash));
 
-        assert!(r#type.is_some(), "Type {} of {} not found in type registry", type_hash, guid);
+        assert!(r#type.is_some(), "Type {type_hash} of {guid} not found in type registry");
     }
 
-    // check descriptor map
-    for guid in kfc_file.get_descriptor_guids() {
+    // check resource map
+    for guid in kfc_file.resources().keys() {
         // check existence, if either of those fail:
         // - the hash function is likely broken
         // - the KFC file is corrupted
-        assert!(kfc_file.contains_descriptor(guid), "Descriptor {} not found in KFC file", guid);
-        assert!(kfc_file.get_descriptor_link(guid).is_some(), "Missing descriptor link for {}", guid);
+        assert!(kfc_file.resources().contains_key(guid), "Resource {guid} not found in KFC file");
+        assert!(kfc_file.resources().get(guid).is_some(), "Missing resource entry for {guid}");
 
         // check reading
         buf.clear();
 
-        let exists = reader.read_descriptor_into(guid, &mut buf)?;
-        assert!(exists, "Descriptor {} not found in KFC file", guid);
+        let exists = reader.read_resource_into(guid, &mut buf)?;
+        assert!(exists, "Resource {guid} not found in KFC file");
 
         // check the size
-        let link = kfc_file.get_descriptor_link(guid)
-            .expect("Descriptor link not found"); // checked above
+        let entry = kfc_file.resources().get(guid)
+            .expect("Resource entry not found"); // checked above
 
         assert_eq!(
             buf.len(),
-            link.size as usize,
-            "Descriptor {} has size {}, but expected {}", guid, buf.len(), link.size
+            entry.size as usize,
+            "Resource {} has size {}, but expected {}", guid, buf.len(), entry.size
         );
     }
 
-    // check blob map
-    for guid in kfc_file.get_blob_guids() {
+    // check content map
+    for guid in kfc_file.contents().keys() {
         // If either of those fail:
         // - the hash function is likely broken
         // - the KFC file is corrupted
-        assert!(kfc_file.contains_blob(guid), "Blob {} not found in KFC file", guid);
-        assert!(kfc_file.get_blob_link(guid).is_some(), "Missing blob link for {}", guid);
+        assert!(kfc_file.contents().contains_key(guid), "Content {guid} not found in KFC file");
+        assert!(kfc_file.contents().get(guid).is_some(), "Missing content entry for {guid}");
 
         // check reading
         buf.clear();
 
-        let exists = reader.read_blob_into(guid, &mut buf)?;
-        assert!(exists, "Blob {} not found in KFC file", guid);
+        let exists = reader.read_content_into(guid, &mut buf)?;
+        assert!(exists, "Content {guid} not found in KFC file");
 
         // check the size
-        let link = kfc_file.get_blob_link(guid)
-            .expect("Blob link not found"); // checked above
+        let entry = kfc_file.contents().get(guid)
+            .expect("Content entry not found"); // checked above
 
-        assert!(link.flags == 0, "Blob {} has non-zero flags: {}", guid, link.flags);
+        assert!(entry.flags == 0, "Content {} has non-zero flags: {}", guid, entry.flags);
 
         assert_eq!(
             buf.len(),
             guid.size() as usize,
-            "Blob {} has size {}, but expected {}", guid, buf.len(), guid.size()
+            "Content {} has size {}, but expected {}", guid, buf.len(), guid.size()
         );
 
         // validate guid
-        let computed_guid = BlobGuid::from_data(&buf);
+        let computed_guid = ContentHash::from_data(&buf);
 
         assert_eq!(
             computed_guid,
             *guid,
-            "Blob {} has computed guid {}, but expected {}", guid, computed_guid, guid
+            "Content {guid} has computed guid {computed_guid}, but expected {guid}",
         );
     }
 
     // check group map
     let mut type_counts = HashMap::new();
 
-    for guid in kfc_file.get_descriptor_guids() {
-        let type_hash = guid.type_hash;
+    for guid in kfc_file.resources().keys() {
+        let type_hash = guid.type_hash();
         let count = type_counts.entry(type_hash).or_insert(0u32);
         *count += 1;
     }
 
-    for &type_hash in kfc_file.get_descriptor_types() {
+    for &type_hash in kfc_file.resource_bundles().keys() {
         let mut count = 0;
 
-        for guid in kfc_file.get_descriptor_guids_by_type_hash(type_hash) {
+        for guid in kfc_file.resources_by_type(type_hash) {
             assert_eq!(
-                guid.type_hash,
+                guid.type_hash(),
                 type_hash,
-                "Descriptor {} has type hash {}, but expected {}", guid, guid.type_hash, type_hash
+                "Resource {} has type hash {}, but expected {}", guid, guid.type_hash(), type_hash
             );
 
             count += 1;
@@ -118,14 +118,14 @@ fn test_validate_kfc() -> Result<(), Box<dyn std::error::Error>> {
 
         let expected_count = type_counts.get(&type_hash);
 
-        assert!(expected_count.is_some(), "Type {} is not a descriptor type", type_hash);
+        assert!(expected_count.is_some(), "Type {type_hash} is not a resource type");
 
         let &expected_count = expected_count.unwrap();
 
         assert_eq!(
             count,
             expected_count,
-            "Type {} has {} descriptors, but expected {}", type_hash, count, expected_count
+            "Type {type_hash} has {count} resources, but expected {expected_count}"
         );
     }
 

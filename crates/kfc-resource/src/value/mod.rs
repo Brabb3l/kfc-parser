@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use indexmap::IndexMap;
-use kfc::{guid::BlobGuid, reflection::TypeIndex};
+use kfc::{guid::Guid, reflection::TypeIndex};
 
 mod error;
 mod read;
@@ -24,7 +24,7 @@ pub enum Value {
     Struct(Box<Struct>),
     Array(Vec<Value>),
     Variant(Box<Variant>),
-    Guid(BlobGuid),
+    Guid(Guid),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -174,7 +174,7 @@ impl Value {
     }
 
     #[inline]
-    pub fn as_guid(&self) -> Option<&BlobGuid> {
+    pub fn as_guid(&self) -> Option<&Guid> {
         if let Self::Guid(value) = self {
             Some(value)
         } else {
@@ -183,7 +183,7 @@ impl Value {
     }
 
     #[inline]
-    pub fn as_guid_mut(&mut self) -> Option<&mut BlobGuid> {
+    pub fn as_guid_mut(&mut self) -> Option<&mut Guid> {
         if let Self::Guid(value) = self {
             Some(value)
         } else {
@@ -192,7 +192,7 @@ impl Value {
     }
 
     #[inline]
-    pub fn into_guid(self) -> Option<BlobGuid> {
+    pub fn into_guid(self) -> Option<Guid> {
         if let Self::Guid(value) = self {
             Some(value)
         } else {
@@ -343,4 +343,4 @@ impl_into!(Box<Struct>, Struct);
 impl_into!(Vec<Value>, Array);
 impl_into!(Variant, Variant);
 impl_into!(Box<Variant>, Variant);
-impl_into!(BlobGuid, Guid);
+impl_into!(Guid, Guid);

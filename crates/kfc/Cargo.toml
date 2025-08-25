@@ -6,13 +6,13 @@ authors.workspace = true
 
 [dependencies]
 kfc-base = { path = "../kfc-base" }
-kfc-descriptor = { path = "../kfc-descriptor", optional = true }
-kfc-blob = { path = "../kfc-blob", optional = true }
+kfc-resource = { path = "../kfc-resource", optional = true }
+kfc-content = { path = "../kfc-content", optional = true }
 
 [features]
-default = ["descriptor"]
-descriptor = ["kfc-descriptor"]
-blob = ["kfc-blob"]
+default = ["resource"]
+resource = ["kfc-resource"]
+content = ["kfc-content"]
 
 [dev-dependencies]
 serde_json.workspace = true

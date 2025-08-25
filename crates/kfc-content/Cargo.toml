@@ -1,19 +1,20 @@
 [package]
-name = "kfc-blob"
+name = "kfc-content"
 edition.workspace = true
 version.workspace = true
 authors.workspace = true
 
 [dependencies]
 kfc = { package = "kfc-base", path = "../kfc-base" }
-kfc-descriptor = { package = "kfc-descriptor", path = "../kfc-descriptor" }
+kfc-resource = { package = "kfc-resource", path = "../kfc-resource" }
 
 anyhow.workspace = true # TODO: Remove this dependency (used only for prototyping)
 thiserror.workspace = true
 serde.workspace = true
 
-half = "2.3.1"
+half.workspace = true
+image.workspace = true
+
 hound = "3.5.1"
-image = "0.24.8"
 texture2ddecoder = "0.1.1"
 bcdec_rs = "0.2.0"

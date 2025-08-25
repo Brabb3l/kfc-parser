@@ -212,15 +212,25 @@ impl TypeRegistry {
 
         for value in types {
             if !value.flags.contains(TypeFlags::HAS_DS) {
-                if self.types_by_impact_hash.contains_key(&value.impact_hash) {
-                    panic!("Duplicate impact hash: {:#010X}", value.impact_hash);
+                if let Some(previous) = self.types_by_impact_hash.get(&value.impact_hash) {
+                    panic!(
+                        "Duplicate impact hash: {:#010X}, previous: {}, current: {}",
+                        value.impact_hash,
+                        self.get(*previous).unwrap().qualified_name,
+                        value.qualified_name
+                    );
                 }
 
                 self.types_by_impact_hash.insert(value.impact_hash, value.index);
             }
 
-            if self.types_by_qualified_hash.contains_key(&value.qualified_hash) {
-                panic!("Duplicate qualified hash: {:#010X}", value.qualified_hash);
+            if let Some(previous) = self.types_by_qualified_hash.get(&value.qualified_hash) {
+                panic!(
+                    "Duplicate qualified hash: {:#010X}, previous: {}, current: {}",
+                    value.qualified_hash,
+                    self.get(*previous).unwrap().qualified_name,
+                    value.qualified_name
+                );
             }
 
             self.types_by_qualified_hash.insert(value.qualified_hash, value.index);
@@ -231,4 +241,3 @@ impl TypeRegistry {
     }
 
 }
-

@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use kfc::guid::BlobGuid;
+use kfc::guid::ContentHash;
 
 use crate::hash_types::HashKey32;
 
@@ -30,7 +30,7 @@ pub struct ImpactVariable {
 #[serde(rename_all = "camelCase")]
 pub struct ImpactProgram {
     pub id: ProgramId, // fnv hash of the program_guid
-    pub program_guid: BlobGuid, // BlobGuid part of the descriptor guid
+    pub program_guid: ContentHash, // BlobGuid part of the object guid
     pub stack_size: u16,
     pub used_streams: Vec<EventStream>,
     pub code: Vec<ImpactCommand>,

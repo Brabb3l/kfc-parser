@@ -15,25 +15,25 @@ const KFC_DIR_MAGIC: u32 = 0x3243464B; // KFC2
 ///     u8 padding[4];
 ///
 ///     KFCLocation version;
-///     KFCLocation dat_infos;
+///     KFCLocation containers;
 ///
 ///     KFCLocation unused0;
 ///     KFCLocation unused1;
 ///
-///     KFCLocation descriptor_locations;
-///     KFCLocation descriptor_indices;
+///     KFCLocation resource_locations;
+///     KFCLocation resource_indices;
 ///
-///     KFCLocation blob_buckets;
-///     KFCLocation blob_guids;
-///     KFCLocation blob_links;
+///     KFCLocation content_buckets;
+///     KFCLocation content_keys;
+///     KFCLocation content_values;
 ///
-///     KFCLocation descriptor_buckets;
-///     KFCLocation descriptor_guids;
-///     KFCLocation descriptor_links;
+///     KFCLocation resource_buckets;
+///     KFCLocation resource_keys;
+///     KFCLocation resource_values;
 ///
-///     KFCLocation group_buckets;
-///     KFCLocation group_hashes;
-///     KFCLocation group_infos;
+///     KFCLocation resource_bundle_buckets;
+///     KFCLocation resource_bundle_keys;
+///     KFCLocation resource_bundle_values;
 /// };
 /// ```
 #[derive(Debug, Clone, Default)]
@@ -42,25 +42,25 @@ pub struct KFCHeader {
     // pub unk0: u32,
 
     pub version: KFCLocation,
-    pub dat_infos: KFCLocation,
+    pub containers: KFCLocation,
 
     pub unused0: KFCLocation,
     pub unused1: KFCLocation,
 
-    pub descriptor_locations: KFCLocation,
-    pub descriptor_indices: KFCLocation,
+    pub resource_locations: KFCLocation,
+    pub resource_indices: KFCLocation,
 
-    pub blob_buckets: KFCLocation,
-    pub blob_guids: KFCLocation,
-    pub blob_links: KFCLocation,
+    pub content_buckets: KFCLocation,
+    pub content_keys: KFCLocation,
+    pub content_values: KFCLocation,
 
-    pub descriptor_buckets: KFCLocation,
-    pub descriptor_guids: KFCLocation,
-    pub descriptor_links: KFCLocation,
+    pub resource_buckets: KFCLocation,
+    pub resource_keys: KFCLocation,
+    pub resource_values: KFCLocation,
 
-    pub group_buckets: KFCLocation,
-    pub group_hashes: KFCLocation,
-    pub group_infos: KFCLocation,
+    pub resource_bundle_buckets: KFCLocation,
+    pub resource_bundle_keys: KFCLocation,
+    pub resource_bundle_values: KFCLocation,
 }
 
 impl KFCHeader {
@@ -78,49 +78,49 @@ impl KFCHeader {
         reader.padding(4)?;
 
         let version = KFCLocation::read(reader)?;
-        let dat_infos = KFCLocation::read(reader)?;
+        let containers = KFCLocation::read(reader)?;
 
         let unused0 = KFCLocation::read(reader)?;
         let unused1 = KFCLocation::read(reader)?;
 
-        let descriptor_locations = KFCLocation::read(reader)?;
-        let descriptor_indices = KFCLocation::read(reader)?;
+        let resource_locations = KFCLocation::read(reader)?;
+        let resource_indices = KFCLocation::read(reader)?;
 
-        let blob_buckets = KFCLocation::read(reader)?;
-        let blob_guids = KFCLocation::read(reader)?;
-        let blob_links = KFCLocation::read(reader)?;
+        let content_buckets = KFCLocation::read(reader)?;
+        let content_keys = KFCLocation::read(reader)?;
+        let content_values = KFCLocation::read(reader)?;
 
-        let descriptor_buckets = KFCLocation::read(reader)?;
-        let descriptor_guids = KFCLocation::read(reader)?;
-        let descriptor_links = KFCLocation::read(reader)?;
+        let resource_buckets = KFCLocation::read(reader)?;
+        let resource_keys = KFCLocation::read(reader)?;
+        let resource_values = KFCLocation::read(reader)?;
 
-        let group_buckets = KFCLocation::read(reader)?;
-        let group_hashes = KFCLocation::read(reader)?;
-        let group_infos = KFCLocation::read(reader)?;
+        let resource_bundle_buckets = KFCLocation::read(reader)?;
+        let resource_bundle_keys = KFCLocation::read(reader)?;
+        let resource_bundle_values = KFCLocation::read(reader)?;
 
         Ok(Self {
             size,
 
             version,
-            dat_infos,
+            containers,
 
             unused0,
             unused1,
 
-            descriptor_locations,
-            descriptor_indices,
+            resource_locations,
+            resource_indices,
 
-            blob_buckets,
-            blob_guids,
-            blob_links,
+            content_buckets,
+            content_keys,
+            content_values,
 
-            descriptor_buckets,
-            descriptor_guids,
-            descriptor_links,
+            resource_buckets,
+            resource_keys,
+            resource_values,
 
-            group_buckets,
-            group_hashes,
-            group_infos,
+            resource_bundle_buckets,
+            resource_bundle_keys,
+            resource_bundle_values,
         })
     }
 
@@ -135,25 +135,25 @@ impl KFCHeader {
         writer.padding(4)?;
 
         self.version.write(writer)?;
-        self.dat_infos.write(writer)?;
+        self.containers.write(writer)?;
 
         self.unused0.write(writer)?;
         self.unused1.write(writer)?;
 
-        self.descriptor_locations.write(writer)?;
-        self.descriptor_indices.write(writer)?;
+        self.resource_locations.write(writer)?;
+        self.resource_indices.write(writer)?;
 
-        self.blob_buckets.write(writer)?;
-        self.blob_guids.write(writer)?;
-        self.blob_links.write(writer)?;
+        self.content_buckets.write(writer)?;
+        self.content_keys.write(writer)?;
+        self.content_values.write(writer)?;
 
-        self.descriptor_buckets.write(writer)?;
-        self.descriptor_guids.write(writer)?;
-        self.descriptor_links.write(writer)?;
+        self.resource_buckets.write(writer)?;
+        self.resource_keys.write(writer)?;
+        self.resource_values.write(writer)?;
 
-        self.group_buckets.write(writer)?;
-        self.group_hashes.write(writer)?;
-        self.group_infos.write(writer)?;
+        self.resource_bundle_buckets.write(writer)?;
+        self.resource_bundle_keys.write(writer)?;
+        self.resource_bundle_values.write(writer)?;
 
         Ok(())
     }
@@ -206,25 +206,23 @@ impl KFCLocation {
 
 /// # Layout
 /// ```c
-/// struct DatInfo {
+/// struct ContainerInfo {
 ///     u64 size;
-///     u32 count;
-///     u8 padding[4];
+///     u64 count;
 /// };
 /// ```
 #[derive(Debug, Clone, Default)]
-pub struct DatInfo {
+pub struct ContainerInfo {
     pub size: u64,
     pub count: usize,
 }
 
-impl DatInfo {
+impl ContainerInfo {
 
     #[inline]
     pub fn read<R: Read>(reader: &mut R) -> Result<Self, KFCReadError> {
         let size = reader.read_u64()?;
-        let count = reader.read_u32()? as usize;
-        reader.padding(4)?;
+        let count = reader.read_u64()? as usize;
 
         Ok(Self {
             size,
@@ -235,8 +233,7 @@ impl DatInfo {
     #[inline]
     pub fn write<W: Write + Seek>(&self, writer: &mut W) -> Result<(), KFCWriteError> {
         writer.write_u64(self.size)?;
-        writer.write_u32(self.count as u32)?;
-        writer.padding(4)?;
+        writer.write_u64(self.count as u64)?;
 
         Ok(())
     }
@@ -245,20 +242,20 @@ impl DatInfo {
 
 /// # Layout
 /// ```c
-/// struct DescriptorLocation {
+/// struct ResourceLocation {
 ///     u32 offset;
 ///     u32 size;
 ///     u32 count;
 /// };
 /// ```
 #[derive(Debug, Clone, Default)]
-pub struct DescriptorLocation {
+pub struct ResourceLocation {
     pub offset: u64,
     pub size: u64,
     pub count: usize,
 }
 
-impl DescriptorLocation {
+impl ResourceLocation {
 
     #[inline]
     pub fn read<R: Read>(reader: &mut R) -> Result<Self, KFCReadError> {
@@ -286,28 +283,28 @@ impl DescriptorLocation {
 
 /// # Layout
 /// ```c
-/// struct BlobLink {
+/// struct ContentEntry {
 ///     u32 offset;
 ///     u16 flags;
-///     u16 dat_index;
+///     u16 container_index;
 ///     u8 padding[8];
 /// };
 /// ```
 #[derive(Debug, Clone, Default)]
-pub struct BlobLink {
+pub struct ContentEntry {
     pub offset: u64,
     pub flags: u16,
-    pub dat_index: usize,
+    pub container_index: usize,
 }
 
-impl BlobLink {
+impl ContentEntry {
 
     #[inline]
-    pub fn new(offset: u64, flags: u16, dat_index: usize) -> Self {
+    pub fn new(offset: u64, flags: u16, container_index: usize) -> Self {
         Self {
             offset,
             flags,
-            dat_index,
+            container_index,
         }
     }
 
@@ -315,13 +312,13 @@ impl BlobLink {
     pub fn read<R: Read>(reader: &mut R) -> Result<Self, KFCReadError> {
         let offset = reader.read_u32()? as u64;
         let flags = reader.read_u16()?;
-        let dat_index = reader.read_u16()? as usize;
+        let container_index = reader.read_u16()? as usize;
         reader.padding(8)?;
 
         Ok(Self {
             offset,
             flags,
-            dat_index,
+            container_index,
         })
     }
 
@@ -329,7 +326,7 @@ impl BlobLink {
     pub fn write<W: Write + Seek>(&self, writer: &mut W) -> Result<(), KFCWriteError> {
         writer.write_u32(self.offset as u32)?;
         writer.write_u16(self.flags)?;
-        writer.write_u16(self.dat_index as u16)?;
+        writer.write_u16(self.container_index as u16)?;
         writer.padding(8)?;
 
         Ok(())
@@ -339,18 +336,18 @@ impl BlobLink {
 
 /// # Layout
 /// ```c
-/// struct DescriptorLink {
+/// struct ResourceEntry {
 ///     u32 offset;
 ///     u32 size;
 /// };
 /// ```
 #[derive(Debug, Clone, Default)]
-pub struct DescriptorLink {
+pub struct ResourceEntry {
     pub offset: u64,
     pub size: u64,
 }
 
-impl DescriptorLink {
+impl ResourceEntry {
 
     #[inline]
     pub fn new(offset: u64, size: u64) -> Self {
@@ -383,20 +380,20 @@ impl DescriptorLink {
 
 /// # Layout
 /// ```c
-/// struct GroupInfo {
+/// struct ResourceBundleEntry {
 ///     u32 internal_hash;
 ///     u32 index;
 ///     u32 count;
 /// };
 /// ```
 #[derive(Debug, Clone, Default)]
-pub struct GroupInfo {
+pub struct ResourceBundleEntry {
     pub internal_hash: Hash32,
     pub index: usize,
     pub count: usize,
 }
 
-impl GroupInfo {
+impl ResourceBundleEntry {
 
     #[inline]
     pub fn read<R: Read>(reader: &mut R) -> Result<Self, KFCReadError> {
