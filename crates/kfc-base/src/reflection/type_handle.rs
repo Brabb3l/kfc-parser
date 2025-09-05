@@ -78,7 +78,7 @@ where
         &self,
         parent: &TypeMetadata,
     ) -> bool {
-        self.type_registry.borrow().is_sub_type(self, parent)
+        self.type_registry.borrow().is_sub_type(parent, self)
     }
 
     #[inline]
