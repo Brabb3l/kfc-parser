@@ -3,8 +3,18 @@ resolver = "3"
 members = [
     "crates/kfc",
     "crates/kfc-base",
-    "crates/kfc-blob",
-    "crates/kfc-descriptor",
+    "crates/kfc-content",
+    "crates/kfc-resource",
+
+    "crates/mod-loader",
+    "crates/mod-loader-base",
+    "crates/mod-loader-lua",
+    "crates/mod-loader-runtime",
+
+    "crates/mod-manager-cli",
+    "crates/mod-manager-gui",
+
+    "crates/dinput8-proxy",
 
     "crates/cli-legacy",
 ]
@@ -15,9 +25,11 @@ version = "0.1.0"
 authors = ["Brabb3l"]
 license = "GPL-3.0-or-later"
 license-file = "LICENSE"
+rust-version = "1.88.0"
 
 [workspace.dependencies]
-kfc = { path = "crates/kfc", features = ["descriptor", "blob"] }
+kfc = { path = "crates/kfc", features = ["resource", "content"] }
+mod-loader = { path = "crates/mod-loader", features = ["lua", "runtime"] }
 
 anyhow = { version = "1.0.95", features = ["backtrace"] }
 thiserror = "2.0.11"
@@ -27,3 +39,21 @@ bitflags = { version = "2.8.0", features = ["serde"] }
 parking_lot = "0.12.3"
 walkdir = "2.5.0"
 indexmap = { version = "2.9.0", features = ["serde"] }
+uuid = { version = "1.18.0", features = ["v4"] }
+crc = "3.3.0"
+camino = "1.1.11"
+
+# processing
+half = "2.6.0"
+image = "0.25.6"
+
+# logging
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
+tracing-appender = "0.2.3"
+
+[profile.release]
+panic = "abort"
+# codegen-units = 1
+# lto = true
+# opt-level = 3
