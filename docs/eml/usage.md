@@ -25,7 +25,7 @@ for loading mods directly when launching the game.
 1. Extract the contents of the downloaded archive.
 2. Copy the `dinput8.dll` file to the root directory of your Enshrouded installation.
 3. Create a `mods` directory in the root directory of your Enshrouded installation
-   if it doesn't already exist already.
+   if it doesn't already exist.
 4. Place the mods you want to use in the `mods` directory.
 5. (Optional) If you want to enable the console for debugging purposes,
    change the Launch Options of the game in Steam to:
