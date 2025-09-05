@@ -1,0 +1,27 @@
+[package]
+name = "dinput8-proxy"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.88"
+
+[lib]
+name = "dinput8"
+crate-type = ["cdylib"]
+
+[dependencies]
+mod-loader = { path = "../mod-loader", features = ["lua", "runtime"] }
+
+camino.workspace = true
+
+windows = { version = "0.61.3", features = [
+    "Win32_System_Console",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_LibraryLoader",
+    "Win32_Foundation",
+    "Win32_System_SystemServices",
+    "Win32_System_SystemInformation"
+] }
+
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
