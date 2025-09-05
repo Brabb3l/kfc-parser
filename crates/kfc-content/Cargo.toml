@@ -16,5 +16,4 @@ half.workspace = true
 image.workspace = true
 
 hound = "3.5.1"
-texture2ddecoder = "0.1.1"
-bcdec_rs = "0.2.0"
+block_compression = { version = "0.6.0", default-features = false, features = ["bc15", "bc6h", "bc7"] }
