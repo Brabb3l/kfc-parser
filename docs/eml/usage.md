@@ -58,7 +58,7 @@ To load mods using the CLI, follow these steps:
 3. Run the following command to run the mods:
 
    ```bash
-   eml.exe run -g <game-dir> [OPTIONS]
+   emm.exe run -g <game-dir> [OPTIONS]
    ```
 
    By default, this will only validate the mods and not actually run them.
@@ -68,13 +68,7 @@ To load mods using the CLI, follow these steps:
    For example, to enable the `patch` and `export` capabilities, you would run:
 
    ```bash
-   eml.exe run -g <game-dir> --export --patch
+   emm.exe run -g <game-dir> --export --patch
    ```
 
 4. Launch the game.
-5. (Optional) If you want to enable the console for debugging purposes,
-   change the Launch Options of the game in Steam to:
-
-   ```bash
-   EML_CONSOLE=1 %command%
-   ```

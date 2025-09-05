@@ -15,7 +15,7 @@ the game Enshrouded using the Enshrouded Mod Loader (EML).
 The mod manager cli can be used to create a new mod template.
 
 ```bash
-eml.exe create -g <game-dir>
+emm.exe create -g <game-dir>
 ```
 
 You will be prompted to enter a few details about your mod which will be placed
