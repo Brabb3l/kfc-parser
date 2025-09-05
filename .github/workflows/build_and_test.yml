@@ -16,6 +16,15 @@ jobs:
             target: x86_64-pc-windows-msvc
             output: kfc-parser.exe
             test: true
+          - name: mod-manager-cli
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            output: emm.exe
+            test: true
+          - name: dinput8-proxy
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            output: dinput8.dll
         profile:
           - dev
           - release
