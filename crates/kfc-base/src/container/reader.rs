@@ -1,56 +1,68 @@
-use std::{borrow::Borrow, fs::File, io::{BufReader, Read, Result, Seek, SeekFrom}, path::{Path, PathBuf}};
+use std::{borrow::Borrow, fs::File, io::{BufReader, Read, Seek, SeekFrom, Take}, path::{Path, PathBuf}};
 
-use crate::{guid::{ContentHash, ResourceId}, reflection::TypeRegistry};
+use crate::{container::KFCReadError, guid::{ContentHash, ResourceId}};
 
 use super::KFCFile;
 
-pub struct KFCReader<F, T> {
+pub struct KFCReader {
+    file: KFCFile,
+
     path: PathBuf,
-    file: F,
-    type_registry: T,
-
-    reader: BufReader<File>,
-    container_readers: Vec<Option<BufReader<File>>>,
+    file_name: String,
+    kfc_path: PathBuf,
+    dat_extension: String,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct KFCReaderOptions<'a> {
-    pub file_name: Option<std::borrow::Cow<'a, str>>,
+    pub kfc_extension: &'a str,
+    pub dat_extension: &'a str,
 }
 
-impl<F, T> KFCReader<F, T>
-where
-    F: Borrow<KFCFile>,
-    T: Borrow<TypeRegistry>,
-{
+impl Default for KFCReaderOptions<'_> {
+    fn default() -> Self {
+        Self {
+            kfc_extension: "kfc",
+            dat_extension: "dat",
+        }
+    }
+}
 
-    pub fn new<P: AsRef<Path>>(
-        path: P,
-        file: F,
-        type_registry: T,
-    ) -> Result<Self> {
-        Self::new_with_options(path, file, type_registry, KFCReaderOptions::default())
+impl KFCReader {
+
+    pub fn new(
+        path: impl AsRef<Path>,
+        file_name: impl AsRef<str>,
+    ) -> Result<Self, KFCReadError> {
+        Self::new_with_options(
+            path,
+            file_name,
+            KFCReaderOptions::default()
+        )
     }
 
-    pub fn new_with_options<P: AsRef<Path>>(
-        path: P,
-        file: F,
-        type_registry: T,
+    pub fn new_with_options(
+        path: impl AsRef<Path>,
+        file_name: impl AsRef<str>,
         options: KFCReaderOptions,
-    ) -> Result<Self> {
-        let reader = BufReader::new(File::open(&path)?);
-        let path = if let Some(file_name) = options.file_name {
-            path.as_ref().with_file_name(file_name.as_ref())
-        } else {
-            path.as_ref().to_path_buf()
-        };
+    ) -> Result<Self, KFCReadError> {
+        let path = path.as_ref();
+        let file_name = file_name.as_ref();
+
+        let kfc_path = path.join(format!(
+            "{}.{}",
+            file_name,
+            options.kfc_extension
+        ));
+        let file = KFCFile::from_path(&kfc_path, false)?;
 
         Ok(Self {
-            path,
             file,
-            type_registry,
-            reader,
-            container_readers: Vec::new(),
+
+            path: path.to_path_buf(),
+            file_name: file_name.to_string(),
+            kfc_path,
+            dat_extension: options.dat_extension.to_string(),
         })
     }
 
@@ -60,22 +72,85 @@ where
     }
 
     #[inline]
-    pub fn type_registry(&self) -> &TypeRegistry {
-        self.type_registry.borrow()
-    }
-
-    #[inline]
     pub fn file(&self) -> &KFCFile {
         self.file.borrow()
     }
 
+    #[inline]
+    pub fn kfc_path(&self) -> &Path {
+        &self.kfc_path
+    }
+
+    #[inline]
+    pub fn new_cursor(&self) -> Result<KFCCursor<&Self>, KFCReadError> {
+        KFCCursor::new(self)
+    }
+
+    #[inline]
+    pub fn into_cursor(self) -> Result<KFCCursor<Self>, KFCReadError> {
+        KFCCursor::new(self)
+    }
+
+}
+
+pub struct KFCCursor<R> {
+    kfc_reader: R,
+    reader: BufReader<File>,
+    container_readers: Vec<Option<BufReader<File>>>,
+}
+
+impl<R> KFCCursor<R>
+where
+    R: Borrow<KFCReader>
+{
+
+    fn new(
+        kfc_reader: R,
+    ) -> Result<Self, KFCReadError> {
+        let reader = kfc_reader.borrow();
+        let reader = BufReader::new(File::open(&reader.kfc_path)?);
+
+        Ok(Self {
+            kfc_reader,
+            reader,
+            container_readers: Vec::new(),
+        })
+    }
+
+    #[inline]
+    pub fn file(&self) -> &KFCFile {
+        self.kfc_reader.borrow().file()
+    }
+
+    pub fn open_resource(
+        &self,
+        id: &ResourceId,
+    ) -> std::io::Result<Option<Take<BufReader<File>>>> {
+        let kfc_reader = self.kfc_reader.borrow();
+        let file = &kfc_reader.file;
+        let resource = match file.resources().get(id) {
+            Some(resource) => resource,
+            None => return Ok(None),
+        };
+
+        let offset = file.data_offset() + resource.offset;
+        let size = resource.size;
+
+        let path = &kfc_reader.kfc_path;
+        let mut reader = BufReader::new(File::open(path)?);
+
+        reader.seek(SeekFrom::Start(offset))?;
+
+        Ok(Some(reader.take(size)))
+    }
+
     pub fn read_resource(
         &mut self,
-        guid: &ResourceId
-    ) -> Result<Option<Vec<u8>>> {
+        id: &ResourceId
+    ) -> std::io::Result<Option<Vec<u8>>> {
         let mut data = Vec::new();
 
-        if !self.read_resource_into(guid, &mut data)? {
+        if !self.read_resource_into(id, &mut data)? {
             return Ok(None);
         }
 
@@ -86,25 +161,52 @@ where
         &mut self,
         guid: &ResourceId,
         dst: &mut Vec<u8>
-    ) -> Result<bool> {
-        let file = self.file.borrow();
+    ) -> std::io::Result<bool> {
+        let kfc_reader = self.kfc_reader.borrow();
+        let file = &kfc_reader.file;
         let resource = match file.resources().get(guid) {
             Some(resource) => resource,
             None => return Ok(false),
         };
 
         let offset = file.data_offset() + resource.offset;
+
         dst.resize(resource.size as usize, 0);
+
         self.reader.seek(SeekFrom::Start(offset))?;
         self.reader.read_exact(dst)?;
 
         Ok(true)
     }
 
-    pub fn read_content(&mut self, guid: &ContentHash) -> Result<Option<Vec<u8>>> {
+    pub fn open_content(
+        &self,
+        hash: &ContentHash
+    ) -> std::io::Result<Option<Take<BufReader<File>>>> {
+        let kfc_reader = self.kfc_reader.borrow();
+        let entry = match kfc_reader.file.contents().get(hash) {
+            Some(entry) => entry,
+            None => return Ok(None),
+        };
+
+        let offset = entry.offset;
+        let size = hash.size() as u64;
+        let index = entry.container_index;
+
+        let mut container_reader = self.open_container_reader(index)?;
+
+        container_reader.seek(SeekFrom::Start(offset))?;
+
+        Ok(Some(container_reader.take(size)))
+    }
+
+    pub fn read_content(
+        &mut self,
+        hash: &ContentHash
+    ) -> std::io::Result<Option<Vec<u8>>> {
         let mut data = Vec::new();
 
-        if !self.read_content_into(guid, &mut data)? {
+        if !self.read_content_into(hash, &mut data)? {
             return Ok(None);
         }
 
@@ -113,16 +215,17 @@ where
 
     pub fn read_content_into(
         &mut self,
-        guid: &ContentHash,
+        hash: &ContentHash,
         dst: &mut Vec<u8>
-    ) -> Result<bool> {
-        let entry = match self.file.borrow().contents().get(guid) {
+    ) -> std::io::Result<bool> {
+        let kfc_reader = self.kfc_reader.borrow();
+        let entry = match kfc_reader.file.contents().get(hash) {
             Some(entry) => entry,
             None => return Ok(false),
         };
 
         let offset = entry.offset;
-        dst.resize(guid.size() as usize, 0);
+        dst.resize(hash.size() as usize, 0);
 
         let container_reader = self.get_container_reader(entry.container_index)?;
 
@@ -132,21 +235,46 @@ where
         Ok(true)
     }
 
+    #[inline]
+    pub fn kfc_path(&self) -> &Path {
+        self.kfc_reader.borrow().kfc_path.as_ref()
+    }
+
+    pub fn dat_path(&self, index: usize) -> PathBuf {
+        let kfc_reader = self.kfc_reader.borrow();
+
+        // Format: FILE_NAME_{INDEX}.dat where INDEX is 3 digits with leading zeros
+        let name = format!(
+            "{}_{:03}.{}",
+            kfc_reader.file_name,
+            index,
+            kfc_reader.dat_extension
+        );
+        kfc_reader.path.join(name)
+    }
+
     fn get_container_reader(
         &mut self,
         index: usize
-    ) -> Result<&mut BufReader<File>> {
+    ) -> std::io::Result<&mut BufReader<File>> {
         if index >= self.container_readers.len() {
             self.container_readers.resize_with(index + 1, || None);
         }
 
         if self.container_readers[index].is_none() {
-            // Format: FILE_NAME_{INDEX}.dat where INDEX is 3 digits with leading zeros
-            let path = self.path.with_file_name(format!("{}_{:03}.dat", self.path.file_stem().unwrap().to_string_lossy(), index));
-            self.container_readers[index] = Some(BufReader::new(File::open(path)?));
+            self.container_readers[index] = Some(
+                self.open_container_reader(index)?
+            );
         }
 
         Ok(self.container_readers[index].as_mut().unwrap())
+    }
+
+    fn open_container_reader(
+        &self,
+        index: usize
+    ) -> std::io::Result<BufReader<File>> {
+        Ok(BufReader::new(File::open(self.dat_path(index))?))
     }
 
 }

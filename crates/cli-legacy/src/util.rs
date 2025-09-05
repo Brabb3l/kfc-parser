@@ -1,22 +1,22 @@
 use std::borrow::Borrow;
 
-use kfc::{container::{KFCFile, KFCReader}, resource::value::{ConversionOptions, Value}, guid::ResourceId, reflection::{LookupKey, TypeRegistry}};
+use kfc::{container::{KFCCursor, KFCReader}, guid::ResourceId, reflection::{LookupKey, TypeRegistry}, resource::value::{ConversionOptions, Value}};
 
-pub fn read_descriptor_into<F, T>(
-    reader: &mut KFCReader<F, T>,
+pub fn read_descriptor_into<R>(
+    reader: &mut KFCCursor<R>,
+    type_registry: &TypeRegistry,
     guid: &ResourceId,
     buf: &mut Vec<u8>
 ) -> anyhow::Result<Option<Value>>
 where
-    F: Borrow<KFCFile>,
-    T: Borrow<TypeRegistry>
+    R: Borrow<KFCReader>,
 {
     if !reader.read_resource_into(guid, buf)? {
         return Ok(None);
     }
 
     let result = deserialize_descriptor(
-        reader.type_registry(),
+        type_registry,
         guid,
         buf
     )?;

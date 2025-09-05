@@ -46,6 +46,7 @@ impl Default for KFCFile {
 }
 
 impl KFCFile {
+
     pub fn from_path<P: AsRef<Path>>(
         path: P,
         skip_entries: bool
@@ -214,9 +215,11 @@ impl KFCFile {
         self.resource_indices = indices;
         self.resource_bundles = type_hashes.into_iter().collect::<HashMap<_, _>>().into();
     }
+
 }
 
 impl KFCFile {
+
     fn read<R: Read + Seek>(reader: &mut R, skip_entries: bool) -> Result<Self, KFCReadError> {
         let header = KFCHeader::read(reader)?;
 
@@ -444,4 +447,5 @@ impl KFCFile {
 
         Ok(())
     }
+
 }

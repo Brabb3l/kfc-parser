@@ -140,12 +140,13 @@ fn unpack(
         fatal!("Output directory does not exist: {}", output_dir.unwrap().display());
     }
 
-    let kfc_file = get_file(game_dir, file_name, "kfc")?;
-    let type_registry = load_type_registry(Some(game_dir), file_name, true)?;
+    let file_name = get_file_name(game_dir, file_name)?;
+    let file_path = get_file(game_dir, Some(&file_name), "kfc")?;
+    let type_registry = load_type_registry(Some(game_dir), Some(&file_name), true)?;
 
-    let file = match KFCFile::from_path(&kfc_file, false) {
+    let file = match KFCFile::from_path(&file_path, false) {
         Ok(dir) => dir,
-        Err(e) => fatal!("Failed to read {}: {}", kfc_file.display(), e)
+        Err(e) => fatal!("Failed to read {}: {}", file_path.display(), e)
     };
 
     enum Filter<'a> {
@@ -209,12 +210,16 @@ fn unpack(
         }
     }
 
+    let kfc_reader = match KFCReader::new(game_dir, &file_name) {
+        Ok(reader) => reader,
+        Err(e) => fatal!("Failed to open {}: {}", file_path.display(), e)
+    };
+
     if let Some(output_dir) = output_dir {
-        info!("Unpacking {} to {}", kfc_file.display(), output_dir.display());
+        info!("Unpacking {} to {}", file_path.display(), output_dir.display());
 
         unpack_files(
-            &kfc_file,
-            &file,
+            &kfc_reader,
             &type_registry,
             output_dir,
             guids,
@@ -222,8 +227,7 @@ fn unpack(
         )
     } else if stdout {
         unpack_stdout(
-            &kfc_file,
-            &file,
+            &kfc_reader,
             &type_registry,
             guids,
             thread_count
@@ -234,8 +238,7 @@ fn unpack(
 }
 
 fn unpack_files(
-    kfc_file: &Path,
-    file: &KFCFile,
+    kfc_reader: &KFCReader,
     type_registry: &TypeRegistry,
     output_dir: &Path,
     guids: HashSet<&ResourceId>,
@@ -257,21 +260,19 @@ fn unpack_files(
         let mut handles = Vec::new();
 
         for i in 0..thread_count {
-            let dir = file;
             let failed_unpacks = &failed_unpacks;
             let pending_guids = &pending_guids;
-            let kfc_file = &kfc_file;
             let output_dir = &output_dir;
             let pb = &pb;
             let names = &names;
 
             let handle = s.spawn(move || {
                 let mut buf = Vec::with_capacity(1024);
-                let mut reader = match KFCReader::new(kfc_file, dir, type_registry) {
+                let mut reader = match kfc_reader.new_cursor() {
                     Ok(file) => file,
                     Err(e) => {
                         pb.suspend(|| {
-                            error!("Failed to open {}: {}", kfc_file.display(), e);
+                            error!("Failed to open {}: {}", kfc_reader.kfc_path().display(), e);
                             error!("Worker #{} has been suspended", i);
                         });
                         return;
@@ -291,7 +292,12 @@ fn unpack_files(
 
                     let result: anyhow::Result<()> = (|| {
                         buf.clear();
-                        let descriptor = match crate::util::read_descriptor_into(&mut reader, guid, &mut buf)? {
+                        let descriptor = match crate::util::read_descriptor_into(
+                            &mut reader,
+                            type_registry,
+                            guid,
+                            &mut buf
+                        )? {
                             Some(d) => d,
                             None => {
                                 pb.suspend(|| {
@@ -374,8 +380,7 @@ fn unpack_files(
 }
 
 fn unpack_stdout(
-    path: &Path,
-    file: &KFCFile,
+    kfc_reader: &KFCReader,
     type_registry: &TypeRegistry,
     guids: HashSet<&ResourceId>,
     thread_count: u8
@@ -388,17 +393,16 @@ fn unpack_stdout(
 
         for _ in 0..thread_count {
             let tx = tx.clone();
-            let dir = file;
             let pending_guids = &pending_guids;
 
             let handle = s.spawn(move || {
                 let mut buf = Vec::with_capacity(1024);
-                let mut reader = match KFCReader::new(path, dir, type_registry) {
+                let mut reader = match kfc_reader.new_cursor() {
                     Ok(file) => file,
                     Err(e) => {
                         let error = serde_json::json!({
                             "$error": "KFCReaderError",
-                            "$message": format!("Failed to open {}: {}", path.display(), e),
+                            "$message": format!("Failed to open {}: {}", kfc_reader.kfc_path().display(), e),
                         }).to_string();
 
                         tx.send(error).unwrap();
@@ -419,7 +423,12 @@ fn unpack_stdout(
                     };
 
                     buf.clear();
-                    let descriptor = match crate::util::read_descriptor_into(&mut reader, guid, &mut buf) {
+                    let descriptor = match crate::util::read_descriptor_into(
+                        &mut reader,
+                        type_registry,
+                        guid,
+                        &mut buf
+                    ) {
                         Ok(Some(d)) => match serde_json::to_string(&d) {
                             Ok(data) => data,
                             Err(e) => {
@@ -557,7 +566,8 @@ fn repack(
             .collect::<Vec<_>>();
 
         let result = repack_files(
-            &kfc_path,
+            game_dir,
+            file_name,
             &mut ref_kfc_file,
             files,
             &type_registry,
@@ -575,7 +585,8 @@ fn repack(
         info!("Repacking from stdin to {}", kfc_path.display());
 
         let result = repack_stdin(
-            &kfc_path,
+            game_dir,
+            file_name,
             &mut ref_kfc_file,
             &type_registry,
             thread_count
@@ -594,7 +605,8 @@ fn repack(
 }
 
 fn repack_files(
-    kfc_path: &Path,
+    game_dir: &Path,
+    file_name: Option<&str>,
     ref_kfc_file: &mut KFCFile,
     files: Vec<PathBuf>,
     type_registry: &TypeRegistry,
@@ -604,9 +616,17 @@ fn repack_files(
         fatal!("No files found to repack");
     }
 
-    let mut writer = match KFCWriter::new_incremental(kfc_path, ref_kfc_file, type_registry) {
+    let file_name = get_file_name(game_dir, file_name)?;
+    let file_path = get_file(game_dir, Some(&file_name), "kfc")?;
+
+    let mut writer = match KFCWriter::new_incremental(
+        game_dir,
+        &file_name,
+        ref_kfc_file,
+        type_registry
+    ) {
         Ok(writer) => writer,
-        Err(e) => fatal!("Failed to open {}: {}", kfc_path.display(), e)
+        Err(e) => fatal!("Failed to open {}: {}", file_path.display(), e)
     };
 
     let total = files.len() as u64;
@@ -738,7 +758,7 @@ fn repack_files(
     match writer.finalize() {
         Ok(()) => {},
         Err(e) => {
-            return Err(Error(format!("Failed to write to {}: {}", kfc_path.display(), e)));
+            return Err(Error(format!("Failed to write to {}: {}", file_path.display(), e)));
         }
     }
 
@@ -751,14 +771,23 @@ fn repack_files(
 }
 
 fn repack_stdin(
-    kfc_path: &Path,
+    game_dir: &Path,
+    file_name: Option<&str>,
     ref_kfc_file: &mut KFCFile,
     type_registry: &TypeRegistry,
     thread_count: u8
 ) -> Result<(), Error> {
-    let mut writer = match KFCWriter::new_incremental(kfc_path, ref_kfc_file, type_registry) {
+    let file_name = get_file_name(game_dir, file_name)?;
+    let file_path = get_file(game_dir, Some(&file_name), "kfc")?;
+
+    let mut writer = match KFCWriter::new_incremental(
+        game_dir,
+        &file_name,
+        ref_kfc_file,
+        type_registry
+    ) {
         Ok(writer) => writer,
-        Err(e) => fatal!("Failed to open {}: {}", kfc_path.display(), e)
+        Err(e) => fatal!("Failed to open {}: {}", file_path.display(), e)
     };
 
     let (tx_in, rx_in) = crossbeam_channel::unbounded::<(usize, String)>();
@@ -877,7 +906,7 @@ fn repack_stdin(
     match writer.finalize() {
         Ok(()) => {},
         Err(e) => {
-            return Err(Error(format!("Failed to write to {}: {}", kfc_path.display(), e)));
+            return Err(Error(format!("Failed to write to {}: {}", file_path.display(), e)));
         }
     }
 

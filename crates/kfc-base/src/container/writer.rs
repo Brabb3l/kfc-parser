@@ -8,8 +8,10 @@ const RESOURCE_ALIGNMENT: u64 = 16;
 const CONTENT_ALIGNMENT: u64 = 4096;
 
 pub struct KFCWriter<F, T> {
-    path: PathBuf,
     type_registry: T,
+
+    path: PathBuf,
+    file_name: String,
 
     file: File,
     data_writer: Cursor<Vec<u8>>,
@@ -33,6 +35,10 @@ struct IncrementalData<F> {
 
 #[derive(Debug)]
 pub struct KFCWriteOptions {
+    /// The extension to use for kfc files.
+    pub kfc_extension: String,
+    /// The extension to use for dat files.
+    pub dat_extension: String,
     /// If true, the writer will overwrite existing data in the .dat files,
     /// instead of causing an error.
     /// **NOTE:** For incremental writes, this will only affect non-default .dat files.
@@ -52,6 +58,8 @@ pub struct KFCWriteOptions {
 impl Default for KFCWriteOptions {
     fn default() -> Self {
         Self {
+            kfc_extension: "kfc".to_string(),
+            dat_extension: "dat".to_string(),
             overwrite_containers: false,
             incremental_reserve: 64 * 1024, // 64 KiB
             max_container_size: 1024 * 1024 * 1024, // 1 GiB
@@ -67,30 +75,40 @@ where
 {
 
     #[inline]
-    pub fn new<P: AsRef<Path>, S: AsRef<str>>(
-        path: P,
+    pub fn new(
+        path: impl AsRef<Path>,
+        file_name: impl AsRef<str>,
         type_registry: T,
-        game_version: S,
+        game_version: impl AsRef<str>,
     ) -> Result<Self, KFCReadError> {
         Self::new_with_options(
             path,
+            file_name,
             type_registry,
             game_version,
             KFCWriteOptions::default(),
         )
     }
 
-    pub fn new_with_options<P: AsRef<Path>, S: AsRef<str>>(
-        path: P,
+    pub fn new_with_options(
+        path: impl AsRef<Path>,
+        file_name: impl AsRef<str>,
         type_registry: T,
-        game_version: S,
+        game_version: impl AsRef<str>,
         options: KFCWriteOptions,
     ) -> Result<Self, KFCReadError> {
-        let file = File::options().write(true).read(true).open(&path)?;
+        let kfc_path = path.as_ref().join(format!(
+            "{}.{}",
+            file_name.as_ref(),
+            options.kfc_extension
+        ));
+        let file = File::options().write(true).read(true).open(&kfc_path)?;
 
         Ok(Self {
-            path: path.as_ref().into(),
             type_registry,
+
+            path: path.as_ref().to_path_buf(),
+            file_name: file_name.as_ref().to_string(),
 
             file,
             data_writer: Cursor::new(Vec::new()),
@@ -106,26 +124,34 @@ where
     }
 
     #[inline]
-    pub fn new_incremental<P: AsRef<Path>>(
-        path: P,
+    pub fn new_incremental(
+        path: impl AsRef<Path>,
+        file_name: impl AsRef<str>,
         reference_file: F,
         type_registry: T,
     ) -> Result<Self, KFCReadError> {
         Self::new_incremental_with_options(
             path,
+            file_name,
             reference_file,
             type_registry,
             KFCWriteOptions::default(),
         )
     }
 
-    pub fn new_incremental_with_options<P: AsRef<Path>>(
-        path: P,
+    pub fn new_incremental_with_options(
+        path: impl AsRef<Path>,
+        file_name: impl AsRef<str>,
         reference_file: F,
         type_registry: T,
         options: KFCWriteOptions,
     ) -> Result<Self, KFCReadError> {
-        let current_file = KFCFile::from_path(&path, true)?;
+        let kfc_path = path.as_ref().join(format!(
+            "{}.{}",
+            file_name.as_ref(),
+            options.kfc_extension
+        ));
+        let current_file = KFCFile::from_path(&kfc_path, true)?;
         let header_space = current_file.data_offset();
         let file = reference_file.borrow();
         let default_data_size = file.data_size() +
@@ -137,11 +163,13 @@ where
 
         drop(current_file);
 
-        let file = File::options().write(true).read(true).open(&path)?;
+        let file = File::options().write(true).read(true).open(&kfc_path)?;
 
         Ok(Self {
-            path: path.as_ref().into(),
             type_registry,
+
+            path: path.as_ref().into(),
+            file_name: file_name.as_ref().to_string(),
 
             file,
             data_writer: Cursor::new(Vec::new()),
@@ -208,6 +236,11 @@ where
             return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Content size mismatch"));
         }
 
+        if self.contents.contains_key(guid) {
+            // if the content already exists, we don't need to write it again since they are unique
+            return Ok(());
+        }
+
         let container_writer = self.get_container_writer()?;
         let index = container_writer.index;
 
@@ -252,7 +285,7 @@ where
         let required_container_count = containers.len().next_power_of_two();
 
         while containers.len() < required_container_count {
-            let path = self.get_container_file_path(containers.len());
+            let path = self.dat_path(containers.len());
 
             if !path.exists() || self.options.truncate_containers {
                 File::create(path)?;
@@ -326,6 +359,17 @@ where
         Ok(())
     }
 
+    pub fn dat_path(&self, index: usize) -> PathBuf {
+        // Format: FILE_NAME_{INDEX}.dat where INDEX is 3 digits with leading zeros
+        let name = format!(
+            "{}_{:03}.{}",
+            self.file_name,
+            index,
+            self.options.dat_extension
+        );
+        self.path.join(name)
+    }
+
     fn get_container_writer(&mut self) -> std::io::Result<&mut ContainerWriter> {
         if !self.container_writers.is_empty() {
             let writer = self.container_writers.last_mut().unwrap();
@@ -342,7 +386,7 @@ where
             .map(|data| data.reference_file.borrow().containers().len())
             .unwrap_or(0);
         let next_index = base_index + self.container_writers.len();
-        let path = self.get_container_file_path(next_index);
+        let path = self.dat_path(next_index);
 
         if !self.options.overwrite_containers && path.exists() {
             // make sure we don't accidentally overwrite an existing file
@@ -358,12 +402,6 @@ where
         self.container_writers.push(writer);
 
         Ok(self.container_writers.last_mut().unwrap())
-    }
-
-    fn get_container_file_path(&self, index: usize) -> PathBuf {
-        let mut base_path = self.path.with_extension("").into_os_string();
-        base_path.push(format!("_{index:03}.dat"));
-        PathBuf::from(base_path)
     }
 
 }
@@ -402,7 +440,6 @@ impl ContainerWriter {
     }
 
 }
-
 
 fn copy_within_file(
     file: &mut File,
