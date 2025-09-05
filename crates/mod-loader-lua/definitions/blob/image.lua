@@ -1,7 +1,5 @@
 --- @meta
 
---- TODO: implement `image` module
-
 --- @alias ImageFormat
 --- | "png"
 --- | "jpg" -- same as jpeg
