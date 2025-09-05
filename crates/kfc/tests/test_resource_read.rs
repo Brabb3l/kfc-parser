@@ -24,7 +24,7 @@ fn test_validate_resources_with_value() -> Result<(), Box<dyn std::error::Error>
 
     // Open the KFC file
     let kfc_file = KFCFile::from_path(&kfc_path, false)?;
-    let mut reader = KFCReader::new(&kfc_path, &kfc_file, &type_registry)?;
+    let mut reader = KFCReader::new(&dir, "enshrouded")?.into_cursor()?;
 
     // check parse json
     for guid in kfc_file.resources().keys() {
@@ -81,7 +81,7 @@ fn test_validate_resources_with_value_human() -> Result<(), Box<dyn std::error::
 
     // Open the KFC file
     let kfc_file = KFCFile::from_path(&kfc_path, false)?;
-    let mut reader = KFCReader::new(&kfc_path, &kfc_file, &type_registry)?;
+    let mut reader = KFCReader::new(&dir, "enshrouded")?.into_cursor()?;
 
     // check parse json
     for guid in kfc_file.resources().keys() {
@@ -139,7 +139,7 @@ fn test_value_serde_to_json() -> Result<(), Box<dyn std::error::Error>> {
 
     // Open the KFC file
     let kfc_file = KFCFile::from_path(&kfc_path, false)?;
-    let mut reader = KFCReader::new(&kfc_path, &kfc_file, &type_registry)?;
+    let mut reader = KFCReader::new(&dir, "enshrouded")?.into_cursor()?;
 
     // check parse json
     for guid in kfc_file.resources().keys() {

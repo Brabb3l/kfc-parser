@@ -23,7 +23,7 @@ fn test_validate_kfc() -> Result<(), Box<dyn std::error::Error>> {
 
     // Open the KFC file
     let kfc_file = KFCFile::from_path(&kfc_path, false)?;
-    let mut reader = KFCReader::new(&kfc_path, &kfc_file, &type_registry)?;
+    let mut reader = KFCReader::new(&dir, "enshrouded")?.into_cursor()?;
 
     // check type registry for valid resource types
     for guid in kfc_file.resources().keys() {
