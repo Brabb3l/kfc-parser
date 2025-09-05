@@ -1,0 +1,16 @@
+[package]
+name = "mod-manager-gui"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+[dependencies]
+mod-loader = { path = "../mod-loader", features = ["lua"] }
+
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
+
+[[bin]]
+name = "emm-gui"
+path = "src/main.rs"

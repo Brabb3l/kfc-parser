@@ -1,0 +1,35 @@
+{
+  "$schema": "https://raw.githubusercontent.com/LuaLS/vscode-lua/master/setting/schema.json",
+  "runtime": {
+    "version": "Lua 5.4",
+    "builtin": {
+      "basic": "enable",
+      "builtin": "enable",
+      "coroutine": "enable",
+      "math": "enable",
+      "string": "enable",
+      "table": "enable",
+      "utf8": "enable",
+
+      "bit": "disable",
+      "bit32": "disable",
+      "debug": "disable",
+      "ffi": "disable",
+      "io": "disable",
+      "jit": "disable",
+      "jit.profile": "disable",
+      "jit.util": "disable",
+      "os": "disable",
+      "package": "disable",
+      "string.buffer": "disable",
+      "table.clear": "disable",
+      "table.new": "disable"
+    }
+  },
+  "workspace": {
+    "library": [
+      "../../.cache/lua/"
+    ]
+  }
+}
+
