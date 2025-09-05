@@ -66,8 +66,6 @@ function AssetManager.create_resource(value, type) end
 --- @param type string|Type -- The qualified type name of the asset, such as `keen::RenderModel`.
 --- @param guid Guid -- The guid to assign to the new resource.
 --- @param part u32 -- The part number of the asset.
---- This must be a unique guid not already used by another asset.
---- Use `AssetManager.generate_guid` to generate a new unique guid.
 --- @return Resource
 function AssetManager.create_resource(value, type, guid, part) end
 
