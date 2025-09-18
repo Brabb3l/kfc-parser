@@ -3,7 +3,7 @@
 This crate provides a proxy for the `dinput8.dll` library.
 It is the entry point for the mod loader patcher and runtime.
 
-## Development on Steam
+## Development on Steam (Linux Only)
 
 If you want to have a console for debugging purposes,
 change the Launch Options of the game in Steam to:

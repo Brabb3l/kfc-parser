@@ -28,11 +28,9 @@ for loading mods directly when launching the game.
    if it doesn't already exist.
 4. Place the mods you want to use in the `mods` directory.
 5. (Optional) If you want to enable the console for debugging purposes,
-   change the Launch Options of the game in Steam to:
-
-   ```bash
-   EML_CONSOLE=1 %command%
-   ```
+   change `enable_console` to `true` in the `eml.json` (located in the root directory of your
+   Enshrouded installation). This file is created automatically when you
+   launch the game for the first time with the proxy DLL.
 
 6. Launch the game.
 

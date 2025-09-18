@@ -5,6 +5,7 @@ mod log;
 use std::{arch::naked_asm, ffi::{c_void, CStr}, panic::PanicHookInfo, ptr};
 use std::ffi::CString;
 
+use mod_loader::Config;
 use windows::{
     Win32::{
         Foundation::{HINSTANCE, MAX_PATH, TRUE},
@@ -68,7 +69,10 @@ extern "system" fn DllMain(
                         .map(|s| matches!(s.to_lowercase().as_str(), "true" | "1" | "yes"))
                         .unwrap_or(false);
 
-                    if enable_console {
+                    let config = Config::load("eml.json")
+                        .unwrap_or_default();
+
+                    if enable_console || config.enable_console {
                         crate::enable_console();
                     }
 
