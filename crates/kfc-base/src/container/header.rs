@@ -14,26 +14,26 @@ const KFC_DIR_MAGIC: u32 = 0x3243464B; // KFC2
 ///     u32 unk0; // 12
 ///     u8 padding[4];
 ///
-///     KFCLocation version;
-///     KFCLocation containers;
+///     KFCLocation version; // -> u8[count]
+///     KFCLocation containers; // -> ContainerInfo[count]
 ///
-///     KFCLocation unused0;
-///     KFCLocation unused1;
+///     KFCLocation unused0; // unused
+///     KFCLocation unused1; // unused
 ///
-///     KFCLocation resource_locations;
-///     KFCLocation resource_indices;
+///     KFCLocation resource_locations; // -> ResourceLocation[count]
+///     KFCLocation resource_indices; // -> u32[count]
 ///
-///     KFCLocation content_buckets;
-///     KFCLocation content_keys;
-///     KFCLocation content_values;
+///     KFCLocation content_buckets; // -> StaticMapBucket[count]
+///     KFCLocation content_keys; // -> ContentHash[count]
+///     KFCLocation content_values; // -> ContentEntry[count]
 ///
-///     KFCLocation resource_buckets;
-///     KFCLocation resource_keys;
-///     KFCLocation resource_values;
+///     KFCLocation resource_buckets; // -> StaticMapBucket[count]
+///     KFCLocation resource_keys; // -> ResourceId[count]
+///     KFCLocation resource_values; // -> ResourceEntry[count]
 ///
-///     KFCLocation resource_bundle_buckets;
-///     KFCLocation resource_bundle_keys;
-///     KFCLocation resource_bundle_values;
+///     KFCLocation resource_bundle_buckets; // -> StaticMapBucket[count]
+///     KFCLocation resource_bundle_keys; // -> Hash32[count] (Type::internal_hash)
+///     KFCLocation resource_bundle_values; // -> ResourceBundleEntry[count]
 /// };
 /// ```
 #[derive(Debug, Clone, Default)]
