@@ -421,7 +421,7 @@ impl MappedArrayValue {
         }
 
         Self::get_field(
-            index,
+            index - 1,
             &self.data,
             &mut self.values.borrow_mut(),
             lua
