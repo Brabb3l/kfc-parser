@@ -122,19 +122,19 @@ impl UserData for StructValue {
 
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_function(MetaMethod::Len, |_, args: MethodArgs| {
-            let this = args.get::<&Self>(0)?;
+            let this = args.this::<&Self>()?;
             Ok(this.fields.borrow().len())
         });
 
         methods.add_meta_function(MetaMethod::Index, |_, args: MethodArgs| {
-            let this = args.get::<&Self>(0)?;
+            let this = args.this::<&Self>()?;
             let key = args.get::<String>(0)?;
 
             this.get(key)
         });
 
         methods.add_meta_function(MetaMethod::NewIndex, |lua, args: MethodArgs| {
-            let this = args.get::<&Self>(0)?;
+            let this = args.this::<&Self>()?;
             let key = args.get::<String>(0)?;
             let value = args.get::<LuaValue>(1)?;
 
@@ -142,12 +142,12 @@ impl UserData for StructValue {
         });
 
         methods.add_meta_function(MetaMethod::Pairs, |lua, args: MethodArgs| {
-            let this = args.get::<&Self>(0)?;
+            let this = args.this::<&Self>()?;
             StructValueIter::create(&this, lua)
         });
 
         methods.add_meta_function(MetaMethod::ToString, |lua, args: MethodArgs| {
-            let this = args.get::<&Self>(0)?;
+            let this = args.this::<&Self>()?;
             let values = this.fields.borrow();
             let mut result = String::new();
 
@@ -427,19 +427,19 @@ impl UserData for ArrayValue {
 
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_function(MetaMethod::Len, |_, args: MethodArgs| {
-            let this = args.get::<&Self>(0)?;
+            let this = args.this::<&Self>()?;
             Ok(this.values.borrow().len())
         });
 
         methods.add_meta_function(MetaMethod::Index, |_, args: MethodArgs| {
-            let this = args.get::<&Self>(0)?;
+            let this = args.this::<&Self>()?;
             let key = args.get::<usize>(0)?;
 
             this.get(key)
         });
 
         methods.add_meta_function(MetaMethod::NewIndex, |lua, args: MethodArgs| {
-            let this = args.get::<&Self>(0)?;
+            let this = args.this::<&Self>()?;
             let index = args.get::<usize>(0)?;
             let value = args.get::<LuaValue>(1)?;
 
@@ -447,12 +447,12 @@ impl UserData for ArrayValue {
         });
 
         methods.add_meta_function(MetaMethod::Pairs, |lua, args: MethodArgs| {
-            let this = args.get::<&Self>(0)?;
+            let this = args.this::<&Self>()?;
             ArrayValueIter::create(&this, lua)
         });
 
         methods.add_meta_function(MetaMethod::ToString, |lua, args: MethodArgs| {
-            let this = args.get::<&Self>(0)?;
+            let this = args.this::<&Self>()?;
             let values = this.values.borrow();
             let mut result = String::new();
 
