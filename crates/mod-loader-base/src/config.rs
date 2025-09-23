@@ -2,13 +2,20 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
+    #[serde(default)]
     pub enable_console: bool,
+    #[serde(default)]
+    pub use_export_flag: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export_directory: Option<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             enable_console: false,
+            use_export_flag: false,
+            export_directory: None,
         }
     }
 }

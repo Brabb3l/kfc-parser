@@ -27,12 +27,20 @@ for loading mods directly when launching the game.
 3. Create a `mods` directory in the root directory of your Enshrouded installation
    if it doesn't already exist.
 4. Place the mods you want to use in the `mods` directory.
-5. (Optional) If you want to enable the console for debugging purposes,
-   change `enable_console` to `true` in the `eml.json` (located in the root directory of your
-   Enshrouded installation). This file is created automatically when you
-   launch the game for the first time with the proxy DLL.
+5. (Optional) Modify the [`eml.json`](#emljson-configuration) configuration file.
 
 6. Launch the game.
+
+### `eml.json` Configuration
+
+This file is created automatically when you launch the game for the first time with the proxy DLL.
+
+- `enable_console` (boolean, default: false): If set to `true`, a console window will be opened
+  alongside the game for debugging purposes.
+- `use_export_flag` (boolean, default: false): If set to `true`, the `export` capability will be
+  enabled when launching the game. This is useful if you want to let mods export stuff when using the proxy DLL.
+- `export_directory` (string, default: "export"): The directory where exported files will be saved.
+  This path is relative to the game directory.
 
 ## Using the CLI
 

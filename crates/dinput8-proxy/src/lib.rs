@@ -76,7 +76,7 @@ extern "system" fn DllMain(
                         crate::enable_console();
                     }
 
-                    init::init();
+                    init::init(config);
                 }
                 Err(e) => {
                     panic!("Failed to initialize dinput8 proxy: {e}");

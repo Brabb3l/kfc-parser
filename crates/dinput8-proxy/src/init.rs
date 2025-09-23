@@ -1,9 +1,11 @@
+use std::path::PathBuf;
+
 use camino::{Utf8Path, Utf8PathBuf};
-use mod_loader::{lua::{self, RunArgs, RunOptions}, runtime, ModEnvironment};
+use mod_loader::{lua::{self, RunArgs, RunOptions}, runtime, Config, ModEnvironment};
 
 use crate::{log::error, logging};
 
-pub fn init() {
+pub fn init(config: Config) {
     logging::setup();
 
     let current_dir = std::env::current_dir()
@@ -55,6 +57,8 @@ pub fn init() {
             file_name: get_file_name(&current_dir),
             options: RunOptions {
                 patch: true,
+                export: config.use_export_flag,
+                export_dir: config.export_directory.map(PathBuf::from),
                 ..Default::default()
             },
         },
