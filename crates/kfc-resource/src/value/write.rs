@@ -778,7 +778,6 @@ impl Value {
     /// ```no_run
     /// struct BlobOptional {
     ///     offset: u32, // relative offset to the inner value
-    ///     size: u32, // size of the inner value (size of the inner type)
     /// }
     /// ```
     #[inline]

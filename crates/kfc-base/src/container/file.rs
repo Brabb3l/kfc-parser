@@ -341,7 +341,7 @@ impl KFCFile {
         }
         writer.align(8)?;
 
-        // obejct locations
+        // object locations
         let resource_locations_offset = writer.stream_position()?;
         ResourceLocation::default().write(writer)?;
 
