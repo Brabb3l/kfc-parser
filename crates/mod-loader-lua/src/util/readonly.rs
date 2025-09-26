@@ -1,10 +1,10 @@
 use std::rc::Rc;
 
 use indexmap::IndexMap;
-use mlua::{MetaMethod, String, UserData, UserDataMethods};
+use mlua::{AnyUserData, Function, MetaMethod, String, UserData, UserDataMethods};
 use ouroboros::self_referencing;
 
-use crate::lua::{LuaValue, MethodArgs};
+use crate::lua::{FunctionArgs, LuaValue, MethodArgs};
 
 pub struct ReadOnlyMap {
     table: Rc<IndexMap<String, LuaValue>>,
@@ -25,7 +25,7 @@ impl UserData for ReadOnlyMap {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_function(MetaMethod::Index, |lua, args: MethodArgs| {
             let this = args.this::<&Self>()?;
-            let key = args.get::<std::string::String>(0)?;
+            let key = args.get::<&[u8]>(0)?;
             let key = lua.create_string(&key)?;
 
             Ok(this.table.get(&key).cloned().unwrap_or(LuaValue::Nil))
@@ -38,20 +38,7 @@ impl UserData for ReadOnlyMap {
 
         methods.add_meta_function(MetaMethod::Pairs, |lua, args: MethodArgs| {
             let this = args.this::<&Self>()?;
-            let mut iter = ReadOnlyMapIter::new(
-                this.table.clone(),
-                |table| table.iter(),
-            );
-
-            lua.create_function_mut(move |_, ()| {
-                let next = iter.with_iter_mut(|iter| iter.next());
-
-                if let Some((k, v)) = next {
-                    Ok((LuaValue::String(k.clone()), v.clone()))
-                } else {
-                    Ok((LuaValue::Nil, LuaValue::Nil))
-                }
-            })
+            ReadOnlyMapIter::create(&this, lua)
         });
     }
 
@@ -64,6 +51,46 @@ struct ReadOnlyMapIter {
     #[not_covariant]
     iter: indexmap::map::Iter<'this, String, LuaValue>,
 }
+
+impl ReadOnlyMapIter {
+
+    fn create(
+        value: &ReadOnlyMap,
+        lua: &mlua::Lua,
+    ) -> mlua::Result<(Function, AnyUserData, LuaValue)> {
+        let state = Self::new(
+            value.table.clone(),
+            |data| data.iter()
+        );
+        let ud = lua.create_userdata(state)?;
+        let iter_fn = lua.create_function(|lua, args: FunctionArgs| {
+            let mut state = args.get::<&mut Self>(0)?;
+
+            state.next(lua)
+        })?;
+
+        Ok((iter_fn, ud, LuaValue::Nil))
+    }
+
+    fn next(
+        &mut self,
+        lua: &mlua::Lua,
+    ) -> mlua::Result<(LuaValue, LuaValue)> {
+        let entry = self.with_iter_mut(|keys| {
+            keys.next()
+        });
+
+        let (key, value) = match entry {
+            Some(k) => k,
+            None => return Ok((LuaValue::Nil, LuaValue::Nil)),
+        };
+
+        Ok((LuaValue::String(lua.create_string(key.as_bytes())?), value.clone()))
+    }
+
+}
+
+impl UserData for ReadOnlyMapIter {}
 
 pub struct ReadOnlyArray {
     array: Rc<Vec<LuaValue>>,
@@ -86,7 +113,11 @@ impl UserData for ReadOnlyArray {
             let this = args.this::<&Self>()?;
             let key = args.get::<usize>(0)?;
 
-            Ok(this.array.get(key).cloned().unwrap_or(LuaValue::Nil))
+            if key == 0 {
+                return Ok(LuaValue::Nil);
+            }
+
+            Ok(this.array.get(key - 1).cloned().unwrap_or(LuaValue::Nil))
         });
 
         methods.add_meta_function(MetaMethod::Len, |_, args: MethodArgs| {
@@ -96,29 +127,52 @@ impl UserData for ReadOnlyArray {
 
         methods.add_meta_function(MetaMethod::Pairs, |lua, args: MethodArgs| {
             let this = args.this::<&Self>()?;
-            let mut iter = ReadOnlyArrayIter::new(
-                this.array.clone(),
-                |array| array.iter(),
-            );
-
-            lua.create_function_mut(move |_, ()| {
-                let next = iter.with_iter_mut(|iter| iter.next());
-
-                if let Some(v) = next {
-                    Ok((LuaValue::Nil, v.clone()))
-                } else {
-                    Ok((LuaValue::Nil, LuaValue::Nil))
-                }
-            })
+            ReadOnlyArrayIter::create(&this, lua)
         });
     }
 
 }
 
-#[self_referencing]
 struct ReadOnlyArrayIter {
     array: Rc<Vec<LuaValue>>,
-    #[borrows(array)]
-    #[not_covariant]
-    iter: std::slice::Iter<'this, LuaValue>,
+    index: usize,
 }
+
+impl ReadOnlyArrayIter {
+
+    fn create(
+        value: &ReadOnlyArray,
+        lua: &mlua::Lua,
+    ) -> mlua::Result<(Function, AnyUserData, LuaValue)> {
+        let state = Self {
+            array: value.array.clone(),
+            index: 0,
+        };
+        let ud = lua.create_userdata(state)?;
+        let iter_fn = lua.create_function(|_, args: FunctionArgs| {
+            let mut state = args.get::<&mut Self>(0)?;
+
+            state.next()
+        })?;
+
+        Ok((iter_fn, ud, LuaValue::Nil))
+    }
+
+    fn next(
+        &mut self,
+    ) -> mlua::Result<(LuaValue, LuaValue)> {
+        if self.index >= self.array.len() {
+            return Ok((LuaValue::Nil, LuaValue::Nil));
+        }
+
+        let key = self.index;
+        let value = self.array[self.index].clone();
+
+        self.index += 1;
+
+        Ok((LuaValue::Integer(key as i64 + 1), value))
+    }
+
+}
+
+impl UserData for ReadOnlyArrayIter {}
