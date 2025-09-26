@@ -29,6 +29,8 @@ function buffer.wrap(str) end
 --- - **head** is the read position (next byte to read).
 --- - **tail** is the write position (next byte to write).
 ---
+--- That means that bytes are read in the order they were written, unless you modify the **head** or **tail** manually.
+---
 --- Reading or writing bytes advances the respective position.
 --- If **head** exceeds **tail**, a read error occurs.
 ---
