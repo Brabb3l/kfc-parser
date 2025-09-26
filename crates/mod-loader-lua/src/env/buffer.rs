@@ -51,8 +51,8 @@ fn lua_wrap(
 #[derive(Clone)]
 pub struct Buffer {
     data: Vec<u8>,
-    position: usize,
-    limit: usize,
+    head: usize,
+    tail: usize,
     state: BufferState,
     order: ByteOrder,
 }
@@ -71,8 +71,8 @@ impl Buffer {
     pub fn new() -> Self {
         Self {
             data: Vec::new(),
-            position: 0,
-            limit: 0,
+            head: 0,
+            tail: 0,
             state: BufferState::ReadWrite,
             order: ByteOrder::LittleEndian,
         }
@@ -84,8 +84,8 @@ impl Buffer {
     ) -> Self {
         Self {
             data: vec![0; capacity],
-            position: 0,
-            limit: 0,
+            head: 0,
+            tail: 0,
             state: BufferState::ReadWrite,
             order: ByteOrder::LittleEndian,
         }
@@ -95,12 +95,12 @@ impl Buffer {
     pub fn wrap(
         data: Vec<u8>
     ) -> Self {
-        let limit = data.len();
+        let tail = data.len();
 
         Self {
             data,
-            position: 0,
-            limit,
+            head: 0,
+            tail,
             state: BufferState::ReadWrite,
             order: ByteOrder::LittleEndian,
         }
@@ -111,12 +111,10 @@ impl Buffer {
 impl UserData for Buffer {
 
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_function("position", lua_position);
-        methods.add_function("limit", lua_limit);
+        methods.add_function("head", lua_head);
+        methods.add_function("tail", lua_tail);
         methods.add_function("remaining", lua_remaining);
         methods.add_function("capacity", lua_capacity);
-        methods.add_function("flip", lua_flip);
-        methods.add_function("rewind", lua_rewind);
         methods.add_function("reset", lua_reset);
         methods.add_function("reserve", lua_reserve);
         methods.add_function("order", lua_order);
@@ -161,7 +159,7 @@ impl UserData for Buffer {
 
 }
 
-fn lua_position(
+fn lua_head(
     lua: &mlua::Lua,
     args: MethodArgs,
 ) -> mlua::Result<LuaValue> {
@@ -169,14 +167,14 @@ fn lua_position(
     let position = args.get::<Option<usize>>(0)?;
 
     if let Some(position) = position {
-        this.set_position(position)?;
+        this.set_head(position)?;
         Ok(LuaValue::Nil)
     } else {
-        this.position()?.into_lua(lua)
+        this.head()?.into_lua(lua)
     }
 }
 
-fn lua_limit(
+fn lua_tail(
     lua: &mlua::Lua,
     args: MethodArgs,
 ) -> mlua::Result<LuaValue> {
@@ -184,10 +182,10 @@ fn lua_limit(
     let limit = args.get::<Option<usize>>(0)?;
 
     if let Some(limit) = limit {
-        this.set_limit(limit)?;
+        this.set_tail(limit)?;
         Ok(LuaValue::Nil)
     } else {
-        this.limit()?.into_lua(lua)
+        this.tail()?.into_lua(lua)
     }
 }
 
@@ -207,24 +205,6 @@ fn lua_capacity(
     let this = args.this::<&Buffer>()?;
 
     Ok(this.capacity()?)
-}
-
-fn lua_flip(
-    _: &mlua::Lua,
-    args: MethodArgs,
-) -> mlua::Result<()> {
-    let mut this = args.this::<&mut Buffer>()?;
-
-    Ok(this.flip()?)
-}
-
-fn lua_rewind(
-    _: &mlua::Lua,
-    args: MethodArgs,
-) -> mlua::Result<()> {
-    let mut this = args.this::<&mut Buffer>()?;
-
-    Ok(this.rewind()?)
 }
 
 fn lua_reset(
@@ -300,7 +280,7 @@ fn lua_copy(
 
         other.check_not_closed()?;
         other.check_readable()?;
-        other.check_read_bounds_at(offset, length)?;
+        other.check_read_bounds(offset.saturating_add(length))?;
         this.copy(&other.data()?[offset..offset + length])?;
     }
 
@@ -454,7 +434,7 @@ fn lua_read_resource(
     let value = MappedValue::from_bytes(
         app_state.type_registry(),
         &r#type,
-        &Rc::from(&this.data[this.position..this.limit])
+        &Rc::from(&this.data[this.head..this.tail])
     ).map_err(LuaError::external)?;
 
     convert_value_to_lua(&value, lua)

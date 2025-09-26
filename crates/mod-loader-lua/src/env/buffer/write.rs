@@ -9,8 +9,8 @@ impl Buffer {
         self.check_writable()?;
         self.reserve(1)?;
 
-        self.data[self.position] = if value { 1 } else { 0 };
-        self.position += 1;
+        self.data[self.tail] = if value { 1 } else { 0 };
+        self.tail += 1;
 
         Ok(())
     }
@@ -20,8 +20,8 @@ impl Buffer {
         self.check_writable()?;
         self.reserve(1)?;
 
-        self.data[self.position] = value;
-        self.position += 1;
+        self.data[self.tail] = value;
+        self.tail += 1;
 
         Ok(())
     }
@@ -31,8 +31,8 @@ impl Buffer {
         self.check_writable()?;
         self.reserve(1)?;
 
-        self.data[self.position] = value as u8;
-        self.position += 1;
+        self.data[self.tail] = value as u8;
+        self.tail += 1;
 
         Ok(())
     }
@@ -43,12 +43,12 @@ impl Buffer {
         self.reserve(2)?;
 
         match self.order {
-            ByteOrder::BigEndian => self.data[self.position..self.position + 2]
+            ByteOrder::BigEndian => self.data[self.tail..self.tail + 2]
                 .copy_from_slice(&value.to_be_bytes()),
-            ByteOrder::LittleEndian => self.data[self.position..self.position + 2]
+            ByteOrder::LittleEndian => self.data[self.tail..self.tail + 2]
                 .copy_from_slice(&value.to_le_bytes()),
         }
-        self.position += 2;
+        self.tail += 2;
 
         Ok(())
     }
@@ -59,12 +59,12 @@ impl Buffer {
         self.reserve(2)?;
 
         match self.order {
-            ByteOrder::BigEndian => self.data[self.position..self.position + 2]
+            ByteOrder::BigEndian => self.data[self.tail..self.tail + 2]
                 .copy_from_slice(&value.to_be_bytes()),
-            ByteOrder::LittleEndian => self.data[self.position..self.position + 2]
+            ByteOrder::LittleEndian => self.data[self.tail..self.tail + 2]
                 .copy_from_slice(&value.to_le_bytes()),
         }
-        self.position += 2;
+        self.tail += 2;
 
         Ok(())
     }
@@ -75,12 +75,12 @@ impl Buffer {
         self.reserve(4)?;
 
         match self.order {
-            ByteOrder::BigEndian => self.data[self.position..self.position + 4]
+            ByteOrder::BigEndian => self.data[self.tail..self.tail + 4]
                 .copy_from_slice(&value.to_be_bytes()),
-            ByteOrder::LittleEndian => self.data[self.position..self.position + 4]
+            ByteOrder::LittleEndian => self.data[self.tail..self.tail + 4]
                 .copy_from_slice(&value.to_le_bytes()),
         }
-        self.position += 4;
+        self.tail += 4;
 
         Ok(())
     }
@@ -91,12 +91,12 @@ impl Buffer {
         self.reserve(4)?;
 
         match self.order {
-            ByteOrder::BigEndian => self.data[self.position..self.position + 4]
+            ByteOrder::BigEndian => self.data[self.tail..self.tail + 4]
                 .copy_from_slice(&value.to_be_bytes()),
-            ByteOrder::LittleEndian => self.data[self.position..self.position + 4]
+            ByteOrder::LittleEndian => self.data[self.tail..self.tail + 4]
                 .copy_from_slice(&value.to_le_bytes()),
         }
-        self.position += 4;
+        self.tail += 4;
 
         Ok(())
     }
@@ -107,10 +107,10 @@ impl Buffer {
         self.reserve(8)?;
 
         match self.order {
-            ByteOrder::BigEndian => self.data[self.position..self.position + 8].copy_from_slice(&value.to_be_bytes()),
-            ByteOrder::LittleEndian => self.data[self.position..self.position + 8].copy_from_slice(&value.to_le_bytes()),
+            ByteOrder::BigEndian => self.data[self.tail..self.tail + 8].copy_from_slice(&value.to_be_bytes()),
+            ByteOrder::LittleEndian => self.data[self.tail..self.tail + 8].copy_from_slice(&value.to_le_bytes()),
         }
-        self.position += 8;
+        self.tail += 8;
 
         Ok(())
     }
@@ -121,12 +121,12 @@ impl Buffer {
         self.reserve(8)?;
 
         match self.order {
-            ByteOrder::BigEndian => self.data[self.position..self.position + 8]
+            ByteOrder::BigEndian => self.data[self.tail..self.tail + 8]
                 .copy_from_slice(&value.to_be_bytes()),
-            ByteOrder::LittleEndian => self.data[self.position..self.position + 8]
+            ByteOrder::LittleEndian => self.data[self.tail..self.tail + 8]
                 .copy_from_slice(&value.to_le_bytes()),
         }
-        self.position += 8;
+        self.tail += 8;
 
         Ok(())
     }
@@ -137,12 +137,12 @@ impl Buffer {
         self.reserve(2)?;
 
         match self.order {
-            ByteOrder::BigEndian => self.data[self.position..self.position + 2]
+            ByteOrder::BigEndian => self.data[self.tail..self.tail + 2]
                 .copy_from_slice(&value.to_be_bytes()),
-            ByteOrder::LittleEndian => self.data[self.position..self.position + 2]
+            ByteOrder::LittleEndian => self.data[self.tail..self.tail + 2]
                 .copy_from_slice(&value.to_le_bytes()),
         }
-        self.position += 2;
+        self.tail += 2;
 
         Ok(())
     }
@@ -153,12 +153,12 @@ impl Buffer {
         self.reserve(4)?;
 
         match self.order {
-            ByteOrder::BigEndian => self.data[self.position..self.position + 4]
+            ByteOrder::BigEndian => self.data[self.tail..self.tail + 4]
                 .copy_from_slice(&value.to_be_bytes()),
-            ByteOrder::LittleEndian => self.data[self.position..self.position + 4]
+            ByteOrder::LittleEndian => self.data[self.tail..self.tail + 4]
                 .copy_from_slice(&value.to_le_bytes()),
         }
-        self.position += 4;
+        self.tail += 4;
 
         Ok(())
     }
@@ -169,12 +169,12 @@ impl Buffer {
         self.reserve(8)?;
 
         match self.order {
-            ByteOrder::BigEndian => self.data[self.position..self.position + 8]
+            ByteOrder::BigEndian => self.data[self.tail..self.tail + 8]
                 .copy_from_slice(&value.to_be_bytes()),
-            ByteOrder::LittleEndian => self.data[self.position..self.position + 8]
+            ByteOrder::LittleEndian => self.data[self.tail..self.tail + 8]
                 .copy_from_slice(&value.to_le_bytes()),
         }
-        self.position += 8;
+        self.tail += 8;
 
         Ok(())
     }
@@ -184,8 +184,8 @@ impl Buffer {
         self.check_writable()?;
         self.reserve(bytes.len())?;
 
-        self.data[self.position..self.position + bytes.len()].copy_from_slice(bytes);
-        self.position += bytes.len();
+        self.data[self.tail..self.tail + bytes.len()].copy_from_slice(bytes);
+        self.tail += bytes.len();
 
         Ok(())
     }

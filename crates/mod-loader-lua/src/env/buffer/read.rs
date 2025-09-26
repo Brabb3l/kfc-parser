@@ -13,8 +13,8 @@ impl Buffer {
         self.check_readable()?;
         self.check_read_bounds(1)?;
 
-        let value = self.data[self.position];
-        self.position += 1;
+        let value = self.data[self.head];
+        self.head += 1;
 
         Ok(value)
     }
@@ -24,8 +24,8 @@ impl Buffer {
         self.check_readable()?;
         self.check_read_bounds(1)?;
 
-        let value = self.data[self.position] as i8;
-        self.position += 1;
+        let value = self.data[self.head] as i8;
+        self.head += 1;
 
         Ok(value)
     }
@@ -36,10 +36,10 @@ impl Buffer {
         self.check_read_bounds(2)?;
 
         let value = match self.order {
-            ByteOrder::BigEndian => u16::from_be_bytes(self.data[self.position..self.position + 2].try_into().unwrap()),
-            ByteOrder::LittleEndian => u16::from_le_bytes(self.data[self.position..self.position + 2].try_into().unwrap()),
+            ByteOrder::BigEndian => u16::from_be_bytes(self.data[self.head..self.head + 2].try_into().unwrap()),
+            ByteOrder::LittleEndian => u16::from_le_bytes(self.data[self.head..self.head + 2].try_into().unwrap()),
         };
-        self.position += 2;
+        self.head += 2;
 
         Ok(value)
     }
@@ -50,10 +50,10 @@ impl Buffer {
         self.check_read_bounds(2)?;
 
         let value = match self.order {
-            ByteOrder::BigEndian => i16::from_be_bytes(self.data[self.position..self.position + 2].try_into().unwrap()),
-            ByteOrder::LittleEndian => i16::from_le_bytes(self.data[self.position..self.position + 2].try_into().unwrap()),
+            ByteOrder::BigEndian => i16::from_be_bytes(self.data[self.head..self.head + 2].try_into().unwrap()),
+            ByteOrder::LittleEndian => i16::from_le_bytes(self.data[self.head..self.head + 2].try_into().unwrap()),
         };
-        self.position += 2;
+        self.head += 2;
 
         Ok(value)
     }
@@ -64,10 +64,10 @@ impl Buffer {
         self.check_read_bounds(4)?;
 
         let value = match self.order {
-            ByteOrder::BigEndian => u32::from_be_bytes(self.data[self.position..self.position + 4].try_into().unwrap()),
-            ByteOrder::LittleEndian => u32::from_le_bytes(self.data[self.position..self.position + 4].try_into().unwrap()),
+            ByteOrder::BigEndian => u32::from_be_bytes(self.data[self.head..self.head + 4].try_into().unwrap()),
+            ByteOrder::LittleEndian => u32::from_le_bytes(self.data[self.head..self.head + 4].try_into().unwrap()),
         };
-        self.position += 4;
+        self.head += 4;
 
         Ok(value)
     }
@@ -78,10 +78,10 @@ impl Buffer {
         self.check_read_bounds(4)?;
 
         let value = match self.order {
-            ByteOrder::BigEndian => i32::from_be_bytes(self.data[self.position..self.position + 4].try_into().unwrap()),
-            ByteOrder::LittleEndian => i32::from_le_bytes(self.data[self.position..self.position + 4].try_into().unwrap()),
+            ByteOrder::BigEndian => i32::from_be_bytes(self.data[self.head..self.head + 4].try_into().unwrap()),
+            ByteOrder::LittleEndian => i32::from_le_bytes(self.data[self.head..self.head + 4].try_into().unwrap()),
         };
-        self.position += 4;
+        self.head += 4;
 
         Ok(value)
     }
@@ -92,10 +92,10 @@ impl Buffer {
         self.check_read_bounds(8)?;
 
         let value = match self.order {
-            ByteOrder::BigEndian => u64::from_be_bytes(self.data[self.position..self.position + 8].try_into().unwrap()),
-            ByteOrder::LittleEndian => u64::from_le_bytes(self.data[self.position..self.position + 8].try_into().unwrap()),
+            ByteOrder::BigEndian => u64::from_be_bytes(self.data[self.head..self.head + 8].try_into().unwrap()),
+            ByteOrder::LittleEndian => u64::from_le_bytes(self.data[self.head..self.head + 8].try_into().unwrap()),
         };
-        self.position += 8;
+        self.head += 8;
 
         Ok(value)
     }
@@ -106,10 +106,10 @@ impl Buffer {
         self.check_read_bounds(8)?;
 
         let value = match self.order {
-            ByteOrder::BigEndian => i64::from_be_bytes(self.data[self.position..self.position + 8].try_into().unwrap()),
-            ByteOrder::LittleEndian => i64::from_le_bytes(self.data[self.position..self.position + 8].try_into().unwrap()),
+            ByteOrder::BigEndian => i64::from_be_bytes(self.data[self.head..self.head + 8].try_into().unwrap()),
+            ByteOrder::LittleEndian => i64::from_le_bytes(self.data[self.head..self.head + 8].try_into().unwrap()),
         };
-        self.position += 8;
+        self.head += 8;
 
         Ok(value)
     }
@@ -120,10 +120,10 @@ impl Buffer {
         self.check_read_bounds(2)?;
 
         let value = match self.order {
-            ByteOrder::BigEndian => f16::from_be_bytes(self.data[self.position..self.position + 2].try_into().unwrap()),
-            ByteOrder::LittleEndian => f16::from_le_bytes(self.data[self.position..self.position + 2].try_into().unwrap()),
+            ByteOrder::BigEndian => f16::from_be_bytes(self.data[self.head..self.head + 2].try_into().unwrap()),
+            ByteOrder::LittleEndian => f16::from_le_bytes(self.data[self.head..self.head + 2].try_into().unwrap()),
         };
-        self.position += 2;
+        self.head += 2;
 
         Ok(value)
     }
@@ -134,10 +134,10 @@ impl Buffer {
         self.check_read_bounds(4)?;
 
         let value = match self.order {
-            ByteOrder::BigEndian => f32::from_be_bytes(self.data[self.position..self.position + 4].try_into().unwrap()),
-            ByteOrder::LittleEndian => f32::from_le_bytes(self.data[self.position..self.position + 4].try_into().unwrap()),
+            ByteOrder::BigEndian => f32::from_be_bytes(self.data[self.head..self.head + 4].try_into().unwrap()),
+            ByteOrder::LittleEndian => f32::from_le_bytes(self.data[self.head..self.head + 4].try_into().unwrap()),
         };
-        self.position += 4;
+        self.head += 4;
 
         Ok(value)
     }
@@ -148,10 +148,10 @@ impl Buffer {
         self.check_read_bounds(8)?;
 
         let value = match self.order {
-            ByteOrder::BigEndian => f64::from_be_bytes(self.data[self.position..self.position + 8].try_into().unwrap()),
-            ByteOrder::LittleEndian => f64::from_le_bytes(self.data[self.position..self.position + 8].try_into().unwrap()),
+            ByteOrder::BigEndian => f64::from_be_bytes(self.data[self.head..self.head + 8].try_into().unwrap()),
+            ByteOrder::LittleEndian => f64::from_le_bytes(self.data[self.head..self.head + 8].try_into().unwrap()),
         };
-        self.position += 8;
+        self.head += 8;
 
         Ok(value)
     }
@@ -161,8 +161,8 @@ impl Buffer {
         self.check_readable()?;
         self.check_read_bounds(size)?;
 
-        let bytes = &self.data[self.position..self.position + size];
-        self.position += size;
+        let bytes = &self.data[self.head..self.head + size];
+        self.head += size;
 
         Ok(bytes)
     }

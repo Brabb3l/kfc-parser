@@ -51,44 +51,44 @@ impl Buffer {
         self.state = BufferState::Closed;
     }
 
-    pub fn position(&self) -> Result<usize> {
+    pub fn head(&self) -> Result<usize> {
         self.check_not_closed()?;
 
-        Ok(self.position)
+        Ok(self.head)
     }
 
-    pub fn set_position(&mut self, position: usize) -> Result<()> {
+    pub fn set_head(&mut self, position: usize) -> Result<()> {
         self.check_not_closed()?;
 
-        if position > self.limit {
+        if position > self.tail {
             return Err(BufferError::Overflow {
-                position,
-                limit: self.limit,
+                head: position,
+                tail: self.tail,
             });
         }
 
-        self.position = position;
+        self.head = position;
 
         Ok(())
     }
 
-    pub fn limit(&self) -> Result<usize> {
+    pub fn tail(&self) -> Result<usize> {
         self.check_not_closed()?;
 
-        Ok(self.limit)
+        Ok(self.tail)
     }
 
-    pub fn set_limit(&mut self, limit: usize) -> Result<()> {
+    pub fn set_tail(&mut self, position: usize) -> Result<()> {
         self.check_not_closed()?;
 
-        if limit > self.data.len() {
-            return Err(BufferError::LimitOverflow {
-                limit,
+        if position > self.data.len() {
+            return Err(BufferError::TailOverflow {
+                tail: position,
                 capacity: self.data.len(),
             });
         }
 
-        self.limit = limit;
+        self.tail = position;
 
         Ok(())
     }
@@ -96,11 +96,7 @@ impl Buffer {
     pub fn remaining(&self) -> Result<usize> {
         self.check_not_closed()?;
 
-        if self.position > self.limit {
-            Ok(0)
-        } else {
-            Ok(self.limit - self.position)
-        }
+        Ok(self.tail.saturating_sub(self.head))
     }
 
     pub fn capacity(&self) -> Result<usize> {
@@ -109,28 +105,11 @@ impl Buffer {
         Ok(self.data.len())
     }
 
-    pub fn flip(&mut self) -> Result<()> {
-        self.check_not_closed()?;
-
-        self.limit = self.position;
-        self.position = 0;
-
-        Ok(())
-    }
-
-    pub fn rewind(&mut self) -> Result<()> {
-        self.check_not_closed()?;
-
-        self.position = 0;
-
-        Ok(())
-    }
-
     pub fn reset(&mut self) -> Result<()> {
         self.check_not_closed()?;
 
-        self.position = 0;
-        self.limit = 0;
+        self.head = 0;
+        self.tail = 0;
 
         Ok(())
     }
@@ -139,9 +118,9 @@ impl Buffer {
         self.check_not_closed()?;
         self.check_writable()?;
 
-        let (new_capacity, overflowing) = self.position.overflowing_add(additional);
+        let (new_capacity, overflowing) = self.tail.overflowing_add(additional);
 
-        if overflowing {
+        if overflowing || new_capacity > isize::MAX as usize {
             return Err(BufferError::CapacityOverflow);
         }
 
@@ -172,7 +151,7 @@ impl Buffer {
         self.check_readable()?;
         self.check_read_bounds(size)?;
 
-        self.position += size;
+        self.head += size;
 
         Ok(())
     }
@@ -182,21 +161,24 @@ impl Buffer {
         self.check_writable()?;
         self.reserve(src.len())?;
 
-        self.data[self.position..self.position + src.len()].copy_from_slice(src);
-        self.position += src.len();
+        self.data[self.tail..self.tail + src.len()].copy_from_slice(src);
+        self.tail += src.len();
 
         Ok(())
     }
 
+    // TODO: this is currently very unintuitive, needs to be reworked
     pub fn copy_within(&mut self, pos: usize, len: usize) -> Result<()> {
         self.check_not_closed()?;
         self.check_readable()?;
         self.check_writable()?;
-        self.check_read_bounds_at(pos, len)?;
+        self.check_read_bounds(pos.saturating_add(len))?;
+
+        let pos = self.head.saturating_add(pos);
 
         self.reserve(len)?;
-        self.data.copy_within(pos..pos + len, self.position);
-        self.position += len;
+        self.data.copy_within(pos..pos + len, self.tail);
+        self.tail += len;
 
         Ok(())
     }
@@ -204,11 +186,11 @@ impl Buffer {
     pub fn data(&self) -> Result<&[u8]> {
         self.check_not_closed()?;
 
-        if self.position >= self.limit {
+        if self.head >= self.tail {
             return Ok(&[]);
         }
 
-        Ok(&self.data[self.position..self.limit])
+        Ok(&self.data[self.head..self.tail])
     }
 
     pub(super) fn check_not_closed(&self) -> Result<()> {
@@ -236,12 +218,12 @@ impl Buffer {
     }
 
     pub(super) fn check_read_bounds(&self, size: usize) -> Result<()> {
-        let n = self.position.saturating_add(size);
+        let n = self.head.saturating_add(size);
 
-        if n > self.limit {
+        if n > self.tail {
             return Err(BufferError::Overflow {
-                position: n,
-                limit: self.limit,
+                head: n,
+                tail: self.tail,
             });
         }
 
@@ -251,10 +233,10 @@ impl Buffer {
     pub(super) fn check_read_bounds_at(&self, pos: usize, size: usize) -> Result<()> {
         let n = pos.saturating_add(size);
 
-        if n > self.limit {
+        if n > self.tail {
             return Err(BufferError::Overflow {
-                position: n,
-                limit: self.limit,
+                head: n,
+                tail: self.tail,
             });
         }
 
