@@ -5,7 +5,7 @@ use mod_loader::ModEnvironment;
 use once_cell::unsync::OnceCell;
 use kfc::{container::{KFCCursor, KFCFile, KFCReader, KFCWriter}, guid::{ContentHash, ResourceId}, reflection::{LookupKey, TypeHandle, TypeIndex, TypeRegistry}, resource::value::Value};
 
-use crate::{alias::{MappedValue, PathBuf}, env::{value::{convert_lua_to_value, convert_value_to_lua, validate_and_clone_lua_value}, Type}, log::warn, lua::{LuaError, LuaValue}, RunArgs};
+use crate::{alias::{MappedValue, PathBuf}, cache::CacheDiff, env::{value::{convert_lua_to_value, convert_value_to_lua, validate_and_clone_lua_value}, Type}, log::warn, lua::{LuaError, LuaValue}, RunArgs};
 
 pub struct AppState {
     env: ModEnvironment,
@@ -45,6 +45,7 @@ impl AppState {
     pub fn new(
         env: ModEnvironment,
         args: RunArgs,
+        cache_diff: &CacheDiff,
     ) -> Result<Self, ()> {
         let game_dir = env.game_dir();
         let cache_dir = env.cache_dir();
@@ -106,7 +107,7 @@ impl AppState {
         crate::load::export_lua_definitions(
             cache_dir,
             &type_registry,
-            options.skip_cache || is_dirty,
+            options.skip_cache || is_dirty || cache_diff.build_id_changed(),
         );
         let type_registry = Rc::new(type_registry);
 

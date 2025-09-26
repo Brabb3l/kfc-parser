@@ -1,9 +1,15 @@
 use std::fs;
 use std::env;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
 fn main() -> std::io::Result<()> {
     generate_definitions_file()?;
+
+    // does not change unless definitions change, so this may need to be changed in the future
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+    println!("cargo:rustc-env=BUILD_ID={now}");
 
     Ok(())
 }

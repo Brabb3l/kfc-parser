@@ -22,7 +22,7 @@ impl FileStateCache {
                                 path = cache_file.as_str(),
                                 "Failed to parse cache file, skipping cache loading"
                             );
-                            Self::default()
+                            Self::error()
                         }
                     }
                 }
@@ -33,11 +33,11 @@ impl FileStateCache {
                         "Failed to open cache file, skipping cache loading"
                     );
 
-                    Self::default()
+                    Self::error()
                 }
             }
         } else {
-            Self::default()
+            Self::error()
         }
     }
 

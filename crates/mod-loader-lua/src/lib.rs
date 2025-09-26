@@ -1,7 +1,7 @@
 use kfc::reflection::LookupKey;
 use mod_loader::ModEnvironment;
 
-use crate::{alias::Path, cache::FileStateCache, env::{AppFeatures, AppState}, log::info, runner::LuaModRunner};
+use crate::{alias::Path, cache::{CacheDiff, FileStateCache}, env::{AppFeatures, AppState}, log::info, runner::LuaModRunner};
 
 mod runner;
 mod definition;
@@ -42,27 +42,33 @@ pub fn run(
 
     // check cache if files have changed
 
-    if !args.options.skip_cache {
+    let cache_diff = if !args.options.skip_cache {
         let current_cache = FileStateCache::read(env.cache_dir());
         let mut new_cache = FileStateCache::default();
 
         new_cache.track_game_files(env.game_dir());
         new_cache.track_mod_files(env.mods_dir());
 
-        if new_cache == current_cache {
+        let cache_diff = new_cache.diff(&current_cache);
+
+        if cache_diff.is_none() {
             info!("No changes detected, skipping patching");
 
             return Ok(());
         }
+
+        cache_diff
     } else {
         info!("Skipping cache check");
-    }
+        CacheDiff::new_dirty()
+    };
 
     // create a new app state
 
     let app_state = match AppState::new(
         env.clone(),
         args,
+        &cache_diff,
     ) {
         Ok(context) => context,
         Err(_) => anyhow::bail!("Failed to create AppState"),

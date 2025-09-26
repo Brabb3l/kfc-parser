@@ -52,7 +52,14 @@ impl FileStateCache {
         &mut self,
         mods_dir: impl AsRef<Path>,
     ) {
-        let mod_files = WalkDir::new(mods_dir)
+        self.track_directory(mods_dir);
+    }
+
+    pub fn track_directory(
+        &mut self,
+        dir: impl AsRef<Path>,
+    ) {
+        let mod_files = WalkDir::new(dir)
             .follow_links(true)
             .follow_root_links(true)
             .into_iter();
