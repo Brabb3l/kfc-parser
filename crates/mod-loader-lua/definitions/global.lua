@@ -56,9 +56,11 @@
 
 --- Represents a globally unique identifier (GUID) used to uniquely identify assets in the game.
 --- The GUID is a 36 character long string in the format of `XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX` where each `X` is a hexadecimal digit.
+--- Accepts `Resource` and `Content` objects as well, automatically extracting their `guid` field.
 --- @alias Guid string
 
 --- A reference to an object of type `T`, represented by its GUID.
+--- Accepts `Resource` objects as well, automatically extracting their `guid` field.
 --- @generic T
 --- @alias ObjectReference<T> Guid
 

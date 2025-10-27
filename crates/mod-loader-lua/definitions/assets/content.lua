@@ -5,6 +5,9 @@
 --- @class Content
 --- @field guid Guid -- A 32 character hexadecimal string representing the asset's unique identifier.
 --- @field size u32 -- The size of the asset in bytes.
+--- @field hash0 u32
+--- @field hash1 u32
+--- @field hash2 u32
 local Content = {}
 
 --- Reads the raw binary data of the asset.

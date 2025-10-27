@@ -105,7 +105,7 @@ pub fn run(
 
             if let Some(value) = value {
                 let r#type = app_state.type_registry()
-                    .get_by_hash(LookupKey::Qualified(resource.guid.type_hash()))
+                    .get_by_hash(LookupKey::Qualified(resource.resource_id.type_hash()))
                     .expect("Failed to find type by qualified hash");
 
                 buf.clear();
@@ -114,7 +114,7 @@ pub fn run(
                     r#type,
                     &mut buf,
                 ).unwrap();
-                writer.write_resource(&resource.guid, &buf)?;
+                writer.write_resource(&resource.resource_id, &buf)?;
             }
         }
 

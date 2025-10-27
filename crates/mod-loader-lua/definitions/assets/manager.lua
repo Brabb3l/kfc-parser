@@ -71,7 +71,7 @@ function AssetManager.create_resource(value, type, guid, part) end
 
 --- Returns a content by its guid.
 ---
---- @param guid Guid -- The unique identifier of the asset.
+--- @param guid Guid|keen.ContentHash -- The unique identifier of the asset.
 --- @return Content? -- A content resource containing information about and the raw data of the asset.
 function AssetManager.get_content(guid) end
 

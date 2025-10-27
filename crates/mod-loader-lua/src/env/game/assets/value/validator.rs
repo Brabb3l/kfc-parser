@@ -1,10 +1,10 @@
 use std::{any::TypeId, collections::HashMap, ops::Deref};
 
-use kfc::{resource::mapped::MappingError, guid::ContentHash, reflection::{LookupKey, PrimitiveType}};
-use mlua::{AnyUserData, Table};
+use kfc::{guid::{ContentHash, Guid}, reflection::{LookupKey, PrimitiveType}, resource::mapped::MappingError};
+use mlua::AnyUserData;
 use thiserror::Error;
 
-use crate::{alias::TypeHandle, env::value::{mapped::{MappedArrayValue, MappedStructValue, MappedVariantValue}, name_of, simple::{ArrayValue, StructValue, VariantValue}, util::TreePath}, lua::LuaValue};
+use crate::{alias::TypeHandle, env::{game::{Content, Resource}, value::{mapped::{MappedArrayValue, MappedStructValue, MappedVariantValue}, name_of, simple::{ArrayValue, StructValue, VariantValue}, util::TreePath}}, lua::{CastLuaExt, LuaValue}};
 
 #[derive(Debug, Error)]
 #[error("at {path}: {kind}")]
@@ -457,6 +457,25 @@ impl Validator {
 
                 Ok(LuaValue::String(s.clone()))
             },
+            LuaValue::UserData(ud) => {
+                let type_id = match ud.type_id() {
+                    Some(type_id) => type_id,
+                    None => panic!("UserData has no type_id"),
+                };
+
+                if type_id == TypeId::of::<Resource>() {
+                    let resource = ud.borrow::<Resource>()?;
+                    let guid = resource.info().resource_id.to_string();
+                    let lua_str = self.lua.create_string(&guid)?;
+
+                    return Ok(LuaValue::String(lua_str));
+                }
+
+                Err(LuaValidationErrorKind::IncompatibleType {
+                    expected: "object reference".to_string(),
+                    found: format!("userdata `{type_id:?}`"),
+                })
+            },
             _ => Err(LuaValidationErrorKind::IncompatibleType {
                 expected: "object reference".to_string(),
                 found: value.to_string()?,
@@ -469,19 +488,10 @@ impl Validator {
         &mut self,
         value: &LuaValue,
     ) -> Result<LuaValue, LuaValidationErrorKind> {
-        match value {
-            LuaValue::String(s) => {
-                let guid = s.to_string_lossy();
-                let _ = ContentHash::parse(&guid)
-                    .ok_or_else(|| LuaValidationErrorKind::InvalidGuid(guid))?;
+        let guid = value.cast::<Guid>()?.to_string();
+        let lua_str = self.lua.create_string(&guid)?;
 
-                Ok(LuaValue::String(s.clone()))
-            },
-            _ => Err(LuaValidationErrorKind::IncompatibleType {
-                expected: "guid".to_string(),
-                found: value.to_string()?,
-            }),
-        }
+        Ok(LuaValue::String(lua_str))
     }
 
     fn process_array_like(
@@ -573,6 +583,19 @@ impl Validator {
                 let ud = self.lua.create_userdata(new_struct_value)?;
 
                 Ok(LuaValue::UserData(ud))
+            },
+            id if id == TypeId::of::<Content>() => {
+                let content = ud.borrow::<Content>()?;
+
+                let guid = content.guid();
+                let table = self.lua.create_table()?;
+
+                table.set("size", guid.size())?;
+                table.set("hash0", guid.hash0())?;
+                table.set("hash1", guid.hash1())?;
+                table.set("hash2", guid.hash2())?;
+
+                Ok(LuaValue::Table(table))
             },
             _ => Err(LuaValidationErrorKind::IncompatibleType {
                 expected: name_of(r#type),

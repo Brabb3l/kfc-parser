@@ -1,4 +1,4 @@
-use kfc::{guid::{ContentHash, ResourceId}, reflection::LookupKey};
+use kfc::{guid::{ContentHash, Guid, ResourceId}, reflection::LookupKey};
 use mlua::Table;
 use tracing::warn;
 
@@ -35,15 +35,15 @@ fn lua_get_resource(
 ) -> mlua::Result<Option<Resource>> {
     let app_state = lua.app_data_ref::<AppState>().unwrap();
 
-    let guid = args.get::<String>(0)?;
+    let guid = args.get::<Guid>(0)?;
     let r#type = get_type(&args, 1, app_state.type_registry().as_ref())?;
     let part = args.get::<Option<u32>>(2)?;
 
-    let guid = ResourceId::parse(
-        &guid,
+    let guid = ResourceId::new(
+        guid,
         r#type.qualified_hash,
         part.unwrap_or(0)
-    ).ok_or_else(|| LuaError::generic("invalid GUID format"))?;
+    );
 
     Ok(app_state.get_resource_info(&guid)
         .map(Resource::new))
@@ -55,14 +55,14 @@ fn lua_get_resource_parts(
 ) -> mlua::Result<Table> {
     let app_state = lua.app_data_ref::<AppState>().unwrap();
 
-    let guid = args.get::<String>(0)?;
+    let guid = args.get::<Guid>(0)?;
     let r#type = get_type(&args, 1, app_state.type_registry().as_ref())?;
 
-    let target_guid = ResourceId::parse(
-        &guid,
+    let target_guid = ResourceId::new(
+        guid,
         r#type.qualified_hash,
         0
-    ).ok_or_else(|| LuaError::generic("invalid GUID format"))?;
+    );
 
     let file = app_state.kfc_file();
     let result = lua.create_table()?;
@@ -171,14 +171,14 @@ fn lua_create_resource(
     let r#type = get_type(&args, 1, app_state.type_registry().as_ref())?;
 
     let guid = if args.len() > 2 {
-        let guid = args.get::<String>(2)?;
+        let guid = args.get::<Guid>(2)?;
         let part = args.get::<u32>(3)?;
 
-        let guid = ResourceId::parse(
-            &guid,
+        let guid = ResourceId::new(
+            guid,
             r#type.qualified_hash,
             part
-        ).ok_or_else(|| LuaError::generic("invalid GUID format"))?;
+        );
 
         app_state.add_resource(
             value,
@@ -206,9 +206,7 @@ fn lua_get_content(
 ) -> mlua::Result<Option<Content>> {
     let app_state = lua.app_data_ref::<AppState>().unwrap();
 
-    let guid = args.get::<String>(0)?;
-    let guid = ContentHash::parse(&guid)
-        .ok_or_else(|| LuaError::generic("invalid GUID format"))?;
+    let guid = args.get::<ContentHash>(0)?;
 
     if !app_state.kfc_file().contents().contains_key(&guid) {
         return Ok(None);

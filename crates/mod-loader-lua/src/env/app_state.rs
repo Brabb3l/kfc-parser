@@ -214,7 +214,7 @@ impl AppState {
                 }
 
                 let info = ResourceInfo {
-                    guid: *guid,
+                    resource_id: *guid,
                     original_value: OnceCell::new(),
                     value: RefCell::default(),
                 };
@@ -254,7 +254,7 @@ impl AppState {
         ).map_err(LuaError::external)?;
 
         let info = Rc::new(ResourceInfo {
-            guid: *guid,
+            resource_id: *guid,
             original_value: OnceCell::new(),
             value: RefCell::new(Some(value)),
         });
@@ -354,7 +354,7 @@ impl AppState {
 }
 
 pub struct ResourceInfo {
-    pub guid: ResourceId,
+    pub resource_id: ResourceId,
 
     original_value: OnceCell<Option<MappedValue>>,
     value: RefCell<Option<LuaValue>>,
@@ -389,8 +389,8 @@ impl ResourceInfo {
         let type_registry = app_state.type_registry();
 
         let r#type = type_registry
-            .get_by_hash(LookupKey::Qualified(self.guid.type_hash()))
-            .ok_or_else(|| LuaError::type_not_found(self.guid.type_hash()))?;
+            .get_by_hash(LookupKey::Qualified(self.resource_id.type_hash()))
+            .ok_or_else(|| LuaError::type_not_found(self.resource_id.type_hash()))?;
 
         let lua_value = validate_and_clone_lua_value(
             &lua_value,
@@ -422,8 +422,8 @@ impl ResourceInfo {
         };
 
         let r#type = type_registry
-            .get_by_hash(LookupKey::Qualified(self.guid.type_hash()))
-            .ok_or_else(|| LuaError::type_not_found(self.guid.type_hash()))?;
+            .get_by_hash(LookupKey::Qualified(self.resource_id.type_hash()))
+            .ok_or_else(|| LuaError::type_not_found(self.resource_id.type_hash()))?;
 
         let value = convert_lua_to_value(
             lua_value,
@@ -443,12 +443,12 @@ impl ResourceInfo {
         let app_state = lua.app_data_ref::<AppState>().unwrap();
 
         self.original_value.get_or_try_init(|| {
-            match app_state.reader().read_resource(&self.guid)? {
+            match app_state.reader().read_resource(&self.resource_id)? {
                 Some(value) => {
                     let type_registry = app_state.type_registry();
                     let r#type = type_registry
-                        .get_by_hash(LookupKey::Qualified(self.guid.type_hash()))
-                        .ok_or_else(|| LuaError::type_not_found(self.guid.type_hash()))?;
+                        .get_by_hash(LookupKey::Qualified(self.resource_id.type_hash()))
+                        .ok_or_else(|| LuaError::type_not_found(self.resource_id.type_hash()))?;
 
                     let value = MappedValue::from_bytes(
                         type_registry,

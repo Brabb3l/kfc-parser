@@ -74,6 +74,19 @@ impl LuaError {
         )
     }
 
+    pub fn type_mismatch_with_context(
+        context: impl AsRef<str>,
+        expected: impl Into<String>,
+        got: &LuaValue,
+    ) -> mlua::Error {
+        error!(
+            "{} ({} expected, got {})",
+            context.as_ref(),
+            expected.into(),
+            type_name(got),
+        )
+    }
+
     pub fn position_out_of_bounds(
         position: usize,
         start: usize,

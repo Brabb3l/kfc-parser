@@ -393,6 +393,13 @@ pub trait CastLuaExt {
     where
         T: CastLua<'a>;
 
+    fn cast_with_context<'a, T>(
+        &'a self,
+        context: impl AsRef<str>,
+    ) -> mlua::Result<T::Output>
+    where
+        T: CastLua<'a>;
+
     fn try_cast<'a, T>(
         &'a self,
     ) -> mlua::Result<Option<T::Output>>
@@ -411,6 +418,21 @@ impl CastLuaExt for LuaValue {
     {
         self.try_cast::<T>()?
             .ok_or_else(|| LuaError::type_mismatch(T::name().as_ref(), self))
+    }
+
+    fn cast_with_context<'a, T>(
+        &'a self,
+        context: impl AsRef<str>,
+    ) -> mlua::Result<T::Output>
+    where
+        T: CastLua<'a>,
+    {
+        self.try_cast::<T>()?
+            .ok_or_else(|| LuaError::type_mismatch_with_context(
+                context,
+                T::name().as_ref(),
+                self,
+            ))
     }
 
     fn try_cast<'a, T>(

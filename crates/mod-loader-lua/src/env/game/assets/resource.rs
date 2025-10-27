@@ -17,15 +17,19 @@ impl Resource {
         }
     }
 
+    pub fn info(&self) -> &Rc<ResourceInfo> {
+        &self.info
+    }
+
 }
 
 impl UserData for Resource {
 
     fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
-        fields.add_field_method_get("guid", |_, this| Ok(this.info.guid.to_string()));
+        fields.add_field_method_get("guid", |_, this| Ok(this.info.resource_id.to_string()));
         fields.add_field_method_get("type", |lua, this| {
             let app_state = lua.app_data_ref::<AppState>().unwrap();
-            let hash = this.info.guid.type_hash();
+            let hash = this.info.resource_id.type_hash();
             let index = app_state.type_registry()
                 .get_by_hash(LookupKey::Qualified(hash))
                 .map(|t| t.index);
@@ -36,7 +40,7 @@ impl UserData for Resource {
                 Ok(Some(LuaValue::Nil))
             }
         });
-        fields.add_field_method_get("part", |_, this| Ok(this.info.guid.part_index()));
+        fields.add_field_method_get("part", |_, this| Ok(this.info.resource_id.part_index()));
         fields.add_field_method_get("data", |lua, this| {
             this.info.get_lua_value(lua)
         });
