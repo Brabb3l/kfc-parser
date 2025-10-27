@@ -544,7 +544,7 @@ impl Validator {
     }
 
     fn try_clone_struct_ud_lua(
-        &self,
+        &mut self,
         ud: &AnyUserData,
         r#type: &TypeHandle,
     ) -> Result<LuaValue, LuaValidationErrorKind> {
@@ -595,7 +595,7 @@ impl Validator {
                 table.set("hash1", guid.hash1())?;
                 table.set("hash2", guid.hash2())?;
 
-                Ok(LuaValue::Table(table))
+                self.process_struct_fields(&table, r#type)
             },
             _ => Err(LuaValidationErrorKind::IncompatibleType {
                 expected: name_of(r#type),
