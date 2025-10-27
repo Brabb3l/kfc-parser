@@ -3,6 +3,8 @@ name: Build Release Binaries
 on:
   workflow_dispatch:
   push:
+    paths-ignore:
+      - "docs/**"
 
 env:
   CARGO_TERM_COLOR: always
