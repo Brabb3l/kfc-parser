@@ -6,7 +6,7 @@ the game Enshrouded using the Enshrouded Mod Loader (EML).
 ## Prerequisites
 
 - Ensure you have a legal copy of the game Enshrouded installed on your system.
-- Download the latest version of the Enshrouded Mod Manager CLI from **WIP**
+- Download the latest version of the Enshrouded Mod Manager CLI from [here](https://github.com/Brabb3l/kfc-parser/actions/workflows/build_release.yml).
 - A text editor or IDE of your choice, preferably with [lua_ls](https://luals.github.io/) (e.g., Visual Studio Code).
 - Basic knowledge of Lua programming.
 
