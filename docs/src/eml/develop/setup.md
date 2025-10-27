@@ -1,4 +1,4 @@
-# Developing Mods for Enshrouded with EML
+# Setup
 
 This document provides instructions on how to set up a modding environment for
 the game Enshrouded using the Enshrouded Mod Loader (EML).
@@ -40,6 +40,7 @@ autocompletion and type checking. They are located in `<game-dir>/.cache/lua`.
 - `mod.json`: The manifest file containing metadata about your mod.
 - `README.md`: A markdown file where you can provide a detailed description of your mod.
 - `.luarc.json`: Configuration file for the Lua language server.
+  If you don't use lua_ls or use another language server, you can safely delete this file.
 - `src/mod.lua`: The main Lua script file where you will write your mod's code
 
 ### Mod Manifest

@@ -1,4 +1,4 @@
-# Usage Instructions for Enshrouded Mod Loader (EML)
+# Usage Instructions
 
 This document provides instructions on how to use the Enshrouded Mod Loader
 to load and manage mods for the game Enshrouded.
@@ -8,8 +8,6 @@ There are currently two ways to use EML:
 1. Using the [Enshrouded Mod Loader Proxy DLL](#using-the-proxy-dll-recommended) (recommended)
 2. Using the [Enshrouded Mod Manager CLI](#using-the-cli)
 
-**Note:** The `export` feature can only be used with the CLI method.
-
 ## Using the Proxy DLL (Recommended)
 
 This is the recommended way to use EML as it provides a seamless experience
@@ -18,7 +16,7 @@ for loading mods directly when launching the game.
 ### Prerequisites
 
 - Ensure you have a legal copy of the game Enshrouded installed on your system.
-- Download the latest version of the Enshrouded Mod Loader Proxy DLL from **WIP**
+- Download the latest version of the [dinput8.dll](https://github.com/Brabb3l/kfc-parser/actions/workflows/build_release.yml) binary.
 
 ### Installation
 
@@ -28,7 +26,7 @@ for loading mods directly when launching the game.
    if it doesn't already exist.
 4. Place the mods you want to use in the `mods` directory.
 5. (Optional) Modify the [`eml.json`](#emljson-configuration) configuration file.
-
+    - Useful for enabling the console or export capabilities.
 6. Launch the game.
 
 ### `eml.json` Configuration
@@ -50,7 +48,7 @@ Additionally, it can also be used to run mods with the `export` capability.
 ### Prerequisites
 
 - Ensure you have a legal copy of the game Enshrouded installed on your system.
-- Download the latest version of the Enshrouded Mod Manager CLI from **WIP**
+- Download the latest version of the [emm.exe](https://github.com/Brabb3l/kfc-parser/actions/workflows/build_release.yml) binary.
 - A terminal or command prompt of your choice.
 - Basic knowledge of command line usage.
 
@@ -59,11 +57,11 @@ Additionally, it can also be used to run mods with the `export` capability.
 To load mods using the CLI, follow these steps:
 
 1. Open a terminal or command prompt.
-2. Navigate to the directory where you extracted the Enshrouded Mod Manager CLI.
+2. Navigate to the directory where you extracted the `emm.exe` binary
    (or put it in your PATH)
 3. Run the following command to run the mods:
 
-   ```bash
+   ```shell
    emm.exe run -g <game-dir> [OPTIONS]
    ```
 
@@ -73,7 +71,7 @@ To load mods using the CLI, follow these steps:
 
    For example, to enable the `patch` and `export` capabilities, you would run:
 
-   ```bash
+   ```shell
    emm.exe run -g <game-dir> --export --patch
    ```
 
