@@ -4,9 +4,9 @@ A collection of unofficial tools for modding the game Enshrouded.
 
 ## Enshrouded Mod Loader (EML)
 
-A tool used to load mods for the game Enshrouded.
+A tool used to load mods for the game Enshrouded.  
 
-Refer to the [EML documentation](docs/eml/index.md) for usage instructions.
+Documentation can be found [here](https://brabb3l.github.io/kfc-parser).  
 
 ## KFC Parser CLI (deprecated)
 
