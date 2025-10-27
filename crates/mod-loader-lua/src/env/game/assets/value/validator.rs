@@ -420,8 +420,8 @@ impl Validator {
                 self.path.pop();
                 self.path.push("value");
 
-                let value = table.get::<Table>("value")?;
-                let result = self.process_struct_fields(&value, &variant_type)?;
+                let value = table.get::<LuaValue>("value")?;
+                let result = self.process_struct(&value, &variant_type)?;
 
                 self.path.pop();
 
