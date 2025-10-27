@@ -41,7 +41,7 @@ pub enum Commands {
 
         /// Export directory for mods to export files to
         #[arg(long, requires_if("export", "true"))]
-        export_directory: PathBuf,
+        export_directory: Option<PathBuf>,
 
         /// File name override (defaults to `enshrouded` and `enshrouded_server`)
         #[arg(long)]

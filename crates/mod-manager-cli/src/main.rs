@@ -230,8 +230,12 @@ fn run(
     patch: bool,
     export: bool,
     _runtime: bool,
-    export_directory: PathBuf,
+    export_directory: Option<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let export_directory = match export_directory {
+        Some(dir) => dir,
+        None => game_directory.join("export"),
+    };
     let file_name = file_name.unwrap_or_else(|| "enshrouded".to_string());
 
     check_game_directory(&game_directory, &file_name)?;
