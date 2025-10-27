@@ -257,7 +257,7 @@ The structure of these objects is defined in the <code>types.lua</code> definiti
 <li>
 <p><strong>Content Assets</strong>: These are blobs that contain arbitrary binary data like images, audio, models, voxels, etc.
 They are always referenced by resources via a field with the <code>keen::ContentHash</code> type.
-Content assets are not parsed by EML, but instead provided as raw binary data as a <code>Buffer</code> object.
+Content assets are not parsed by EML, but instead provided as raw binary data as a <a href="../api/buffer.html"><code>Buffer</code></a> object.
 There are also some helper modules like the <code>image</code> module to work with specific content types.</p>
 </li>
 </ul>
@@ -324,7 +324,7 @@ io.export("balancing_table.txt", tostring(BalancingTable))
 </code></pre>
 <p>When you run your mod now, it will create a file named <code>balancing_table.txt</code> in the <code>export</code> directory of your game installation (unless you changed it).
 If you specify a subdirectory in the file name, it will create the necessary directories automatically.</p>
-<p>You can also export a <code>Buffer</code> object directly to export its binary data.</p>
+<p>You can also export a <a href="../api/buffer.html"><code>Buffer</code></a> object directly to export its binary data.</p>
 <p><strong>Important:</strong> The <code>export</code> function can only write files to the <code>export</code> directory. Files that already exist will be overwritten without warning!</p>
 <h2 id="next-steps"><a class="header" href="#next-steps">Next Steps</a></h2>
 <p>Now that you have created a simple patch, you start looking into all the resource types that are available.
