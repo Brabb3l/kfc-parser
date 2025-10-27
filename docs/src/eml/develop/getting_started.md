@@ -93,7 +93,7 @@ There are two distinct types of game data:
   The structure of these objects is defined in the `types.lua` definition file.
 - **Content Assets**: These are blobs that contain arbitrary binary data like images, audio, models, voxels, etc.
   They are always referenced by resources via a field with the `keen::ContentHash` type.
-  Content assets are not parsed by EML, but instead provided as raw binary data as a `Buffer` object.
+  Content assets are not parsed by EML, but instead provided as raw binary data as a [`Buffer`](../api/buffer.md) object.
   There are also some helper modules like the `image` module to work with specific content types.
 
 ### Accessing Resources
@@ -190,7 +190,7 @@ io.export("balancing_table.txt", tostring(BalancingTable))
 When you run your mod now, it will create a file named `balancing_table.txt` in the `export` directory of your game installation (unless you changed it).
 If you specify a subdirectory in the file name, it will create the necessary directories automatically.
 
-You can also export a `Buffer` object directly to export its binary data.
+You can also export a [`Buffer`](../api/buffer.md) object directly to export its binary data.
 
 **Important:** The `export` function can only write files to the `export` directory. Files that already exist will be overwritten without warning!
 
