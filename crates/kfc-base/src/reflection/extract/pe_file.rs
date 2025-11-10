@@ -197,6 +197,27 @@ impl PEFile {
             .map(|offset| offset + 1)
     }
 
+    pub fn find_pointer_to_0va2x(
+        &self,
+        from_offset: u64,
+        va1: u64,
+        va2: u64,
+    ) -> Option<u64> {
+        let needle = super::util::prefix_pattern::<16, 17>(
+            va1.to_le_bytes()
+                .iter()
+                .chain(va2.to_le_bytes().iter())
+                .copied()
+                .collect::<Vec<u8>>()
+                .try_into()
+                .unwrap(),
+            0x00
+        );
+
+        self.find(from_offset - 1, needle, 8)
+            .map(|offset| offset + 1)
+    }
+
     pub fn get_cursor_at(&self, offset: u64) -> std::io::Result<Cursor<&[u8]>> {
         self.data.get(offset as usize..)
             .map(Cursor::new)

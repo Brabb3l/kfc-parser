@@ -15,8 +15,8 @@ pub fn extract_reflection_data<P: AsRef<Path>>(
     exe_file: P,
 ) -> std::result::Result<Vec<TypeMetadata>, ReflectionParseError> {
     let pe_file = PEFile::load_from_file(exe_file)?;
-    let data_section_offset = pe_file.offset_to_section(".data")
-        .ok_or(ReflectionParseError::MissingDataSection)?;
+    // let data_section_offset = pe_file.offset_to_section(".data")
+    //     .ok_or(ReflectionParseError::MissingDataSection)?;
     let rdata_section_offset = pe_file.offset_to_section(".rdata")
         .ok_or(ReflectionParseError::MissingRDataSection)?;
 
@@ -28,11 +28,27 @@ pub fn extract_reflection_data<P: AsRef<Path>>(
         .and_then(|offset| pe_file.fo_to_va(offset + 1))
         .ok_or(ReflectionParseError::MalformedPattern)?;
 
-    let offset = pe_file.find_pointer_to_0va(rdata_section_offset, offset_to_blob_string_literal)
+    let offset_to_uint32_literal = pe_file.find(
+        rdata_section_offset - 1,
+        [0x00, 0x75, 0x69, 0x6E, 0x74, 0x33, 0x32, 0x00],
+        8
+    )
+        .and_then(|offset| pe_file.fo_to_va(offset + 1))
+        .ok_or(ReflectionParseError::MalformedPattern)?;
+
+    let offset_1 = pe_file.find_pointer_to_0va(rdata_section_offset, offset_to_blob_string_literal)
         .and_then(|offset| pe_file.fo_to_va(offset))
         .ok_or(ReflectionParseError::MalformedPattern)?;
 
-    let offset = pe_file.find_pointer_to_0va(data_section_offset, offset)
+    let offset_2 = pe_file.find_pointer_to_0va(rdata_section_offset, offset_to_uint32_literal)
+        .and_then(|offset| pe_file.fo_to_va(offset))
+        .ok_or(ReflectionParseError::MalformedPattern)?;
+
+    let offset = pe_file.find_pointer_to_0va2x(
+        rdata_section_offset,
+        offset_1,
+        offset_2
+    )
         .and_then(|offset| pe_file.fo_to_va(offset))
         .ok_or(ReflectionParseError::MalformedPattern)?;
 
