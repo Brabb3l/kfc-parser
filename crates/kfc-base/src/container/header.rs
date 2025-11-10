@@ -4,7 +4,7 @@ use crate::{io::{ReadExt, ReadSeekExt, WriteExt, WriteSeekExt}, Hash32};
 
 use super::{KFCReadError, KFCWriteError};
 
-const KFC_DIR_MAGIC: u32 = 0x3243464B; // KFC2
+const KFC_DIR_MAGIC: u32 = 0x3343464B; // KFC3
 
 /// # Layout
 /// ```c
@@ -34,6 +34,8 @@ const KFC_DIR_MAGIC: u32 = 0x3243464B; // KFC2
 ///     KFCLocation resource_bundle_buckets; // -> StaticMapBucket[count]
 ///     KFCLocation resource_bundle_keys; // -> Hash32[count] (Type::internal_hash)
 ///     KFCLocation resource_bundle_values; // -> ResourceBundleEntry[count]
+///
+///     KFCLocation resource_chunks; // -> ResourceSectionInfo[count] (offset-4 has duplicate count)
 /// };
 /// ```
 #[derive(Debug, Clone, Default)]
@@ -61,6 +63,8 @@ pub struct KFCHeader {
     pub resource_bundle_buckets: KFCLocation,
     pub resource_bundle_keys: KFCLocation,
     pub resource_bundle_values: KFCLocation,
+
+    pub resource_chunks: KFCLocation,
 }
 
 impl KFCHeader {
@@ -98,6 +102,8 @@ impl KFCHeader {
         let resource_bundle_keys = KFCLocation::read(reader)?;
         let resource_bundle_values = KFCLocation::read(reader)?;
 
+        let resource_chunks = KFCLocation::read(reader)?;
+
         Ok(Self {
             size,
 
@@ -121,6 +127,8 @@ impl KFCHeader {
             resource_bundle_buckets,
             resource_bundle_keys,
             resource_bundle_values,
+
+            resource_chunks,
         })
     }
 
@@ -154,6 +162,8 @@ impl KFCHeader {
         self.resource_bundle_buckets.write(writer)?;
         self.resource_bundle_keys.write(writer)?;
         self.resource_bundle_values.write(writer)?;
+
+        self.resource_chunks.write(writer)?;
 
         Ok(())
     }
@@ -243,15 +253,15 @@ impl ContainerInfo {
 /// # Layout
 /// ```c
 /// struct ResourceLocation {
-///     u32 offset;
-///     u32 size;
+///     u32 uncompressed_size;
+///     u32 compressed_size;
 ///     u32 count;
 /// };
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct ResourceLocation {
-    pub offset: u64,
-    pub size: u64,
+    pub uncompressed_size: u64,
+    pub compressed_size: u64,
     pub count: usize,
 }
 
@@ -259,21 +269,21 @@ impl ResourceLocation {
 
     #[inline]
     pub fn read<R: Read>(reader: &mut R) -> Result<Self, KFCReadError> {
-        let offset = reader.read_u32()? as u64;
-        let size = reader.read_u32()? as u64;
+        let uncompressed_size = reader.read_u32()? as u64;
+        let compressed_size = reader.read_u32()? as u64;
         let count = reader.read_u32()? as usize;
 
         Ok(Self {
-            offset,
-            size,
+            uncompressed_size,
+            compressed_size,
             count,
         })
     }
 
     #[inline]
     pub fn write<W: Write + Seek>(&self, writer: &mut W) -> Result<(), KFCWriteError> {
-        writer.write_u32(self.offset as u32)?;
-        writer.write_u32(self.size as u32)?;
+        writer.write_u32(self.uncompressed_size as u32)?;
+        writer.write_u32(self.compressed_size as u32)?;
         writer.write_u32(self.count as u32)?;
 
         Ok(())
@@ -413,6 +423,57 @@ impl ResourceBundleEntry {
         writer.write_u32(self.internal_hash)?;
         writer.write_u32(self.index as u32)?;
         writer.write_u32(self.count as u32)?;
+
+        Ok(())
+    }
+
+}
+
+/// # Layout
+/// ```c
+/// struct ResourceChunkInfo {
+///     u32 offset;
+///     u32 size;
+///     u32 compressed_size;
+///     u32 uncompressed_offset;
+///     u32 uncompressed_size;
+/// };
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct ResourceChunkInfo {
+    pub offset: u64,
+    pub size: u64,
+    pub compressed_size: u64,
+    pub uncompressed_offset: u64,
+    pub uncompressed_size: u64,
+}
+
+impl ResourceChunkInfo {
+
+    #[inline]
+    pub fn read<R: Read>(reader: &mut R) -> Result<Self, KFCReadError> {
+        let offset = reader.read_u32()? as u64;
+        let size = reader.read_u32()? as u64;
+        let compressed_size = reader.read_u32()? as u64;
+        let uncompressed_offset = reader.read_u32()? as u64;
+        let uncompressed_size = reader.read_u32()? as u64;
+
+        Ok(Self {
+            offset,
+            size,
+            compressed_size,
+            uncompressed_offset,
+            uncompressed_size,
+        })
+    }
+
+    #[inline]
+    pub fn write<W: Write + Seek>(&self, writer: &mut W) -> Result<(), KFCWriteError> {
+        writer.write_u32(self.offset as u32)?;
+        writer.write_u32(self.size as u32)?;
+        writer.write_u32(self.compressed_size as u32)?;
+        writer.write_u32(self.uncompressed_offset as u32)?;
+        writer.write_u32(self.uncompressed_size as u32)?;
 
         Ok(())
     }

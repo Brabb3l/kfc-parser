@@ -944,6 +944,7 @@ dependencies = [
  "indexmap",
  "serde",
  "thiserror 2.0.16",
+ "zstd",
 ]
 
 [[package]]

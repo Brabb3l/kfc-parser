@@ -1,11 +1,13 @@
-use std::{borrow::Borrow, fs::File, io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write}, path::{Path, PathBuf}};
+use std::{borrow::Borrow, fs::File, io::{BufWriter, Cursor, Seek, SeekFrom, Write}, path::{Path, PathBuf}};
 
-use crate::{guid::{ContentHash, ResourceId}, io::{WriteExt, WriteSeekExt}, reflection::TypeRegistry};
+use crate::{container::header::ResourceChunkInfo, guid::{ContentHash, ResourceId}, io::{WriteExt, WriteSeekExt}, reflection::TypeRegistry};
 
 use super::{header::{ContentEntry, ContainerInfo, ResourceEntry}, KFCFile, KFCReadError, KFCWriteError, StaticMapBuilder};
 
 const RESOURCE_ALIGNMENT: u64 = 16;
 const CONTENT_ALIGNMENT: u64 = 4096;
+const RESOURCE_CHUNK_ALIGNMENT: u64 = 4096;
+const RESOURCE_CHUNK_SIZE: u64 = 8 * 1024 * 1024; // 8 MiB
 
 pub struct KFCWriter<F, T> {
     type_registry: T,
@@ -14,7 +16,13 @@ pub struct KFCWriter<F, T> {
     file_name: String,
 
     file: File,
-    data_writer: Cursor<Vec<u8>>,
+
+    chunk_writer: Cursor<Vec<u8>>,
+    resource_writer: BufWriter<File>,
+    uncompressed_offset: u64,
+    uncompressed_chunk_offset: u64,
+    resource_chunks: Vec<ResourceChunkInfo>,
+
     container_writers: Vec<ContainerWriter>,
 
     game_version: String,
@@ -27,25 +35,20 @@ pub struct KFCWriter<F, T> {
 
 struct IncrementalData<F> {
     reference_file: F,
-
-    old_header_space: u64,
-    default_data_size: u64,
-    default_data_size_unaligned: u64,
 }
 
 #[derive(Debug)]
 pub struct KFCWriteOptions {
     /// The extension to use for kfc files.
     pub kfc_extension: String,
+    /// The extension to use for kfc resource files.
+    pub resource_extension: String,
     /// The extension to use for dat files.
     pub dat_extension: String,
     /// If true, the writer will overwrite existing data in the .dat files,
     /// instead of causing an error.
     /// **NOTE:** For incremental writes, this will only affect non-default .dat files.
     pub overwrite_containers: bool,
-    /// The amount of header bytes to reserve for incremental writes.
-    /// This is used to prevent moving existing resource data around excessively.
-    pub incremental_reserve: u64,
     // TEST: does the game use a i32, u32 or an artifical limit for the dat max size?
     /// The maximum size of a single .dat file before a new one is created.
     pub max_container_size: u32,
@@ -59,9 +62,9 @@ impl Default for KFCWriteOptions {
     fn default() -> Self {
         Self {
             kfc_extension: "kfc".to_string(),
+            resource_extension: "kfc_resources".to_string(),
             dat_extension: "dat".to_string(),
             overwrite_containers: false,
-            incremental_reserve: 64 * 1024, // 64 KiB
             max_container_size: 1024 * 1024 * 1024, // 1 GiB
             truncate_containers: false,
         }
@@ -104,6 +107,14 @@ where
         ));
         let file = File::options().write(true).read(true).open(&kfc_path)?;
 
+        let resources_path = path.as_ref().join(format!(
+            "{}.{}",
+            file_name.as_ref(),
+            options.resource_extension
+        ));
+        let resource_file = File::options().write(true).open(&resources_path)?;
+        let resource_writer = BufWriter::new(resource_file);
+
         Ok(Self {
             type_registry,
 
@@ -111,7 +122,13 @@ where
             file_name: file_name.as_ref().to_string(),
 
             file,
-            data_writer: Cursor::new(Vec::new()),
+
+            chunk_writer: Cursor::new(Vec::new()),
+            resource_writer,
+            uncompressed_offset: 0,
+            uncompressed_chunk_offset: 0,
+            resource_chunks: Vec::new(),
+
             container_writers: Vec::new(),
 
             game_version: game_version.as_ref().to_string(),
@@ -152,11 +169,8 @@ where
             options.kfc_extension
         ));
         let current_file = KFCFile::from_path(&kfc_path, true)?;
-        let header_space = current_file.data_offset();
+
         let file = reference_file.borrow();
-        let default_data_size = file.data_size() +
-            (RESOURCE_ALIGNMENT - (file.data_size() % RESOURCE_ALIGNMENT)) % RESOURCE_ALIGNMENT;
-        let default_data_size_unaligned = file.data_size();
 
         let resources = file.resources().as_builder();
         let contents = file.contents().as_builder();
@@ -165,6 +179,30 @@ where
 
         let file = File::options().write(true).read(true).open(&kfc_path)?;
 
+        let resources_path = path.as_ref().join(format!(
+            "{}.{}",
+            file_name.as_ref(),
+            options.resource_extension
+        ));
+        let resource_file = File::options().write(true).open(&resources_path)?;
+        let mut resource_writer = BufWriter::new(resource_file);
+
+        let previous_resource_size = reference_file.borrow()
+            .resource_chunks()
+            .iter()
+            .map(|chunk| chunk.offset + chunk.size)
+            .max()
+            .unwrap_or(0);
+
+        let previous_uncompressed_size = reference_file.borrow()
+            .resource_chunks()
+            .iter()
+            .map(|chunk| chunk.uncompressed_offset + chunk.uncompressed_size)
+            .max()
+            .unwrap_or(0);
+
+        resource_writer.seek(SeekFrom::Start(previous_resource_size))?;
+
         Ok(Self {
             type_registry,
 
@@ -172,7 +210,12 @@ where
             file_name: file_name.as_ref().to_string(),
 
             file,
-            data_writer: Cursor::new(Vec::new()),
+            chunk_writer: Cursor::new(Vec::new()),
+            resource_writer,
+            uncompressed_offset: previous_uncompressed_size,
+            uncompressed_chunk_offset: previous_uncompressed_size,
+            resource_chunks: Vec::new(),
+
             container_writers: Vec::new(),
 
             game_version: reference_file.borrow().game_version().to_string(),
@@ -181,10 +224,6 @@ where
 
             incremental_data: Some(IncrementalData {
                 reference_file,
-
-                old_header_space: header_space,
-                default_data_size,
-                default_data_size_unaligned,
             }),
             options,
         })
@@ -209,20 +248,86 @@ where
     pub fn write_resource(
         &mut self,
         guid: &ResourceId,
-        bytes: &[u8]
+        mut bytes: &[u8]
     ) -> std::io::Result<()> {
-        let base_offset = self.incremental_data.as_ref()
-            .map(|data| data.default_data_size)
-            .unwrap_or(0);
-        let offset = self.data_writer.stream_position()? + base_offset;
-
         self.resources.insert(*guid, ResourceEntry {
-            offset,
+            offset: self.uncompressed_offset,
             size: bytes.len() as u64
         });
 
-        self.data_writer.write_all(bytes)?;
-        self.data_writer.align(RESOURCE_ALIGNMENT as usize)?;
+        let previous_offset = self.uncompressed_offset;
+
+        self.uncompressed_offset += bytes.len() as u64;
+        self.uncompressed_offset += (RESOURCE_ALIGNMENT - (self.uncompressed_offset % RESOURCE_ALIGNMENT)) % RESOURCE_ALIGNMENT;
+
+        let mut aligned_size = self.uncompressed_offset - previous_offset;
+
+        // write resource data or compress it if needed
+
+        while aligned_size + self.chunk_writer.position() >= RESOURCE_CHUNK_SIZE {
+            let available_size = RESOURCE_CHUNK_SIZE - self.chunk_writer.position();
+            let split_index = (available_size as usize).min(bytes.len());
+
+            let (chunk_bytes, remaining_bytes) = bytes.split_at(split_index);
+
+            self.chunk_writer.write_all(chunk_bytes)?;
+            self.chunk_writer.align(RESOURCE_CHUNK_SIZE as usize)?;
+
+            // compress and submit chunk
+
+            self.submit_resource_data()?;
+
+            // continue with remaining bytes
+
+            bytes = remaining_bytes;
+            aligned_size -= available_size;
+        }
+
+        if aligned_size > 0 {
+            self.chunk_writer.write_all(bytes)?;
+
+            let remaining = aligned_size - bytes.len() as u64;
+
+            if remaining > 0 {
+                self.chunk_writer.padding(remaining)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn submit_resource_data(&mut self) -> std::io::Result<()> {
+        let offset = self.resource_writer.stream_position()?;
+        let chunk_data = self.chunk_writer.get_ref();
+
+        zstd::stream::copy_encode(
+            &mut &chunk_data[..],
+            &mut self.resource_writer,
+            0
+        )?;
+
+        let compressed_size = self.resource_writer.stream_position()? - offset;
+
+        self.resource_writer.align(RESOURCE_CHUNK_ALIGNMENT as usize)?;
+
+        let size = self.resource_writer.stream_position()? - offset;
+        let uncompressed_offset = self.uncompressed_chunk_offset;
+        let uncompressed_size = chunk_data.len() as u64;
+
+        self.resource_chunks.push(ResourceChunkInfo {
+            offset,
+            size,
+            compressed_size,
+            uncompressed_offset,
+            uncompressed_size,
+        });
+
+        self.uncompressed_chunk_offset += uncompressed_size;
+
+        // reset chunk writer
+
+        self.chunk_writer.set_position(0);
+        self.chunk_writer.get_mut().clear();
 
         Ok(())
     }
@@ -256,10 +361,7 @@ where
     }
 
     pub fn finalize(mut self) -> Result<(), KFCWriteError> {
-        let base_size = self.incremental_data.as_ref()
-            .map(|data| data.default_data_size)
-            .unwrap_or(0);
-        let size = base_size + self.data_writer.stream_position()?;
+        self.submit_resource_data()?;
 
         // prepare container infos
 
@@ -297,64 +399,26 @@ where
             });
         }
 
+        // prepare resource chunks
+
+        let mut chunks = self.incremental_data.as_ref()
+            .map(|data| data.reference_file.borrow().resource_chunks().to_vec())
+            .unwrap_or_default();
+
+        chunks.extend(self.resource_chunks.iter().cloned());
+
         // header construction
 
-        let mut header_writer = BufWriter::new(Cursor::new(Vec::new()));
+        let mut file_writer = BufWriter::new(&mut self.file);
         let mut file = KFCFile::default();
 
         file.set_game_version(self.game_version);
         file.set_resources(self.resources.build(), self.type_registry.borrow());
         file.set_contents(self.contents.build());
         file.set_containers(containers);
-        file.set_data_location(0, size);
+        file.set_resource_chunks(chunks);
 
-        file.write(&mut header_writer)?;
-
-        if let Some(incremental_data) = self.incremental_data {
-            let header_size = header_writer.stream_position()?;
-            let mut available_header_space = incremental_data.old_header_space;
-            let mut padding = 0;
-
-            while available_header_space < header_size {
-                // add padding to reduce consecutive default data movement
-                padding += self.options.incremental_reserve;
-                available_header_space += self.options.incremental_reserve;
-            }
-
-            file.set_data_location(available_header_space, size);
-
-            // write data
-
-            if padding > 0 {
-                copy_within_file(
-                    &mut self.file,
-                    incremental_data.old_header_space,
-                    incremental_data.default_data_size_unaligned,
-                    available_header_space
-                )?;
-            }
-
-            let mut file_writer = BufWriter::new(self.file);
-            let data = self.data_writer.into_inner();
-
-            file_writer.seek(SeekFrom::Start(0))?;
-            file.write_info(&mut file_writer)?;
-            file_writer.padding(available_header_space - header_size)?;
-
-            file_writer.seek(SeekFrom::Current(incremental_data.default_data_size as i64))?;
-            file_writer.write_all(&data)?;
-        } else {
-            file.set_data_location(header_writer.stream_position()?, size);
-
-            // write data
-
-            let mut file_writer = BufWriter::new(self.file);
-            let data = self.data_writer.into_inner();
-
-            file_writer.seek(SeekFrom::Start(0))?;
-            file.write_info(&mut file_writer)?;
-            file_writer.write_all(&data)?;
-        }
+        file.write(&mut file_writer)?;
 
         Ok(())
     }
@@ -439,59 +503,4 @@ impl ContainerWriter {
         self.writer.flush()
     }
 
-}
-
-fn copy_within_file(
-    file: &mut File,
-    src: u64,
-    len: u64,
-    dst: u64,
-) -> std::io::Result<()> {
-    if src == dst {
-        return Ok(());
-    }
-
-    if src < dst {
-        const BUFFER_SIZE: u64 = 8192;
-        let mut buf = vec![0u8; BUFFER_SIZE as usize];
-        let mut remaining = len;
-
-        file.seek(SeekFrom::End(0))?;
-
-        while remaining > 0 {
-            let chunk_len = BUFFER_SIZE.min(remaining);
-            let src_off = src + remaining - chunk_len;
-            let dst_off = dst + remaining - chunk_len;
-            let chunk = &mut buf[..chunk_len as usize];
-
-            file.seek(SeekFrom::Start(src_off))?;
-            file.read_exact(chunk)?;
-
-            file.seek(SeekFrom::Start(dst_off))?;
-            file.write_all(chunk)?;
-
-            remaining -= chunk_len;
-        }
-    } else {
-        const BUFFER_SIZE: u64 = 8192;
-        let mut buf = vec![0u8; BUFFER_SIZE as usize];
-        let mut remaining = len;
-
-        while remaining > 0 {
-            let chunk_len = BUFFER_SIZE.min(remaining);
-            let src_off = src + len - remaining;
-            let dst_off = dst + len - remaining;
-            let chunk = &mut buf[..chunk_len as usize];
-
-            file.seek(SeekFrom::Start(src_off))?;
-            file.read_exact(chunk)?;
-
-            file.seek(SeekFrom::Start(dst_off))?;
-            file.write_all(chunk)?;
-
-            remaining -= chunk_len;
-        }
-    }
-
-    Ok(())
 }

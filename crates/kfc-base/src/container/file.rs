@@ -20,6 +20,7 @@ pub struct KFCFile {
 
     containers: Vec<ContainerInfo>,
     resource_locations: Vec<ResourceLocation>,
+    resource_chunks: Vec<ResourceChunkInfo>,
 
     contents: StaticMap<ContentHash, ContentEntry>,
     resources: StaticMap<ResourceId, ResourceEntry>,
@@ -32,6 +33,7 @@ impl Default for KFCFile {
     fn default() -> Self {
         Self {
             resource_locations: vec![ResourceLocation::default()],
+            resource_chunks: Vec::default(),
 
             version: String::default(),
             containers: Vec::default(),
@@ -80,6 +82,11 @@ impl KFCFile {
     }
 
     #[inline]
+    pub fn resource_chunks(&self) -> &[ResourceChunkInfo] {
+        &self.resource_chunks
+    }
+
+    #[inline]
     pub fn resource_bundles(&self) -> &StaticMap<Hash32, ResourceBundleEntry> {
         &self.resource_bundles
     }
@@ -92,16 +99,6 @@ impl KFCFile {
     #[inline]
     pub fn game_version(&self) -> &str {
         &self.version
-    }
-
-    #[inline]
-    pub fn data_offset(&self) -> u64 {
-        self.resource_locations[0].offset
-    }
-
-    #[inline]
-    pub fn data_size(&self) -> u64 {
-        self.resource_locations[0].size
     }
 
     #[inline]
@@ -144,7 +141,21 @@ impl KFCFile {
         type_registry: &TypeRegistry,
     ) {
         self.resources = resources;
+        self.resource_locations[0].count = self.resources.len();
         self.rebuild_resource_bundles(type_registry);
+    }
+
+    pub fn set_resource_chunks(
+        &mut self,
+        chunks: Vec<ResourceChunkInfo>
+    ) {
+        self.resource_chunks = chunks;
+        self.resource_locations[0].uncompressed_size = self.resource_chunks.iter()
+            .map(|chunk| chunk.uncompressed_size)
+            .sum();
+        self.resource_locations[0].compressed_size = self.resource_chunks.iter()
+            .map(|chunk| chunk.compressed_size)
+            .sum();
     }
 
     pub fn set_contents(
@@ -163,12 +174,6 @@ impl KFCFile {
 
     pub fn set_game_version(&mut self, version: String) {
         self.version = version;
-    }
-
-    pub fn set_data_location(&mut self, offset: u64, size: u64) {
-        self.resource_locations[0].offset = offset;
-        self.resource_locations[0].size = size;
-        self.resource_locations[0].count = self.resources.len();
     }
 
     fn rebuild_resource_bundles(&mut self, type_registry: &TypeRegistry) {
@@ -297,6 +302,12 @@ impl KFCFile {
                 .map(|_| ResourceBundleEntry::read(reader))
                 .collect::<Result<Vec<_>, _>>()?;
 
+            // resource_chunks
+            reader.seek(SeekFrom::Start(header.resource_chunks.offset))?;
+            let resource_chunks = (0..header.resource_chunks.count)
+                .map(|_| ResourceChunkInfo::read(reader))
+                .collect::<Result<Vec<_>, _>>()?;
+
             Ok(Self {
                 version,
                 containers,
@@ -307,6 +318,8 @@ impl KFCFile {
                 contents: StaticMap::from_parts(content_keys, content_values, content_buckets)?,
                 resources: StaticMap::from_parts(resource_keys, resource_values, resource_buckets)?,
                 resource_bundles: StaticMap::from_parts(resource_bundle_keys, resource_bundle_values, resource_bundle_buckets)?,
+
+                resource_chunks,
             })
         } else {
             Ok(Self {
@@ -317,13 +330,9 @@ impl KFCFile {
                 contents: StaticMap::default(),
                 resources: StaticMap::default(),
                 resource_bundles: StaticMap::default(),
+                resource_chunks: Vec::new(),
             })
         }
-    }
-
-    pub(super) fn write_info<W: Write + Seek>(&self, writer: &mut W) -> Result<(), KFCWriteError> {
-        // OPTIMIZE: Only write the necessary parts of the file
-        self.write(writer)
     }
 
     pub(super) fn write<W: Write + Seek>(&self, writer: &mut W) -> Result<(), KFCWriteError> {
@@ -344,6 +353,14 @@ impl KFCFile {
         // object locations
         let resource_locations_offset = writer.stream_position()?;
         ResourceLocation::default().write(writer)?;
+        writer.align(8)?;
+
+        // resource chunks
+        let resource_chunks_offset = writer.stream_position()? + 4;
+        writer.write_u32(self.resource_chunks.len() as u32)?;
+        for resource_chunks in &self.resource_chunks {
+            resource_chunks.write(writer)?;
+        }
 
         // resource indices
         let resource_indices_offset = writer.stream_position()?;
@@ -406,6 +423,8 @@ impl KFCFile {
 
         let size = writer.stream_position()?;
 
+        writer.align(0x1000)?;
+
         // resource locations (update)
         writer.seek(SeekFrom::Start(resource_locations_offset))?;
         for resource_location in &self.resource_locations {
@@ -414,6 +433,9 @@ impl KFCFile {
 
         // KFCHeader
         let header = KFCHeader {
+            unused0: Default::default(),
+            unused1: Default::default(),
+
             size,
 
             version: KFCLocation::new(version_offset, self.version.len()),
@@ -437,7 +459,7 @@ impl KFCFile {
             resource_bundle_keys: KFCLocation::new(resource_bundle_keys_offset, self.resource_bundles.len()),
             resource_bundle_values: KFCLocation::new(resource_bundle_values_offset, self.resource_bundles.len()),
 
-            ..Default::default()
+            resource_chunks: KFCLocation::new(resource_chunks_offset, self.resource_chunks.len()),
         };
 
         writer.seek(SeekFrom::Start(0))?;

@@ -11,3 +11,4 @@ bitflags.workspace = true
 indexmap.workspace = true
 
 aes = { version = "0.8.4", features = ["hazmat"] }
+zstd = "0.13.3"

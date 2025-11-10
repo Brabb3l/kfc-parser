@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, fs::File, io::{BufReader, Read, Seek, SeekFrom, Take}, path::{Path, PathBuf}};
+use std::{borrow::Borrow, collections::HashMap, fs::File, io::{BufReader, Read, Seek, SeekFrom, Take}, path::{Path, PathBuf}};
 
 use crate::{container::KFCReadError, guid::{ContentHash, ResourceId}};
 
@@ -11,12 +11,14 @@ pub struct KFCReader {
     file_name: String,
     kfc_path: PathBuf,
     dat_extension: String,
+    resource_path: PathBuf,
 }
 
 #[derive(Debug)]
 pub struct KFCReaderOptions<'a> {
     pub kfc_extension: &'a str,
     pub dat_extension: &'a str,
+    pub resource_extension: &'a str,
 }
 
 impl Default for KFCReaderOptions<'_> {
@@ -24,6 +26,7 @@ impl Default for KFCReaderOptions<'_> {
         Self {
             kfc_extension: "kfc",
             dat_extension: "dat",
+            resource_extension: "kfc_resources",
         }
     }
 }
@@ -56,6 +59,12 @@ impl KFCReader {
         ));
         let file = KFCFile::from_path(&kfc_path, false)?;
 
+        let resource_path = path.join(format!(
+            "{}.{}",
+            file_name,
+            options.resource_extension
+        ));
+
         Ok(Self {
             file,
 
@@ -63,6 +72,7 @@ impl KFCReader {
             file_name: file_name.to_string(),
             kfc_path,
             dat_extension: options.dat_extension.to_string(),
+            resource_path,
         })
     }
 
@@ -97,6 +107,9 @@ pub struct KFCCursor<R> {
     kfc_reader: R,
     reader: BufReader<File>,
     container_readers: Vec<Option<BufReader<File>>>,
+
+    chunk_cache: HashMap<usize, Vec<u8>>,
+    buffer: Vec<u8>,
 }
 
 impl<R> KFCCursor<R>
@@ -108,12 +121,15 @@ where
         kfc_reader: R,
     ) -> Result<Self, KFCReadError> {
         let reader = kfc_reader.borrow();
-        let reader = BufReader::new(File::open(&reader.kfc_path)?);
+        let reader = BufReader::new(File::open(&reader.resource_path)?);
 
         Ok(Self {
             kfc_reader,
             reader,
             container_readers: Vec::new(),
+
+            chunk_cache: HashMap::new(),
+            buffer: Vec::new(),
         })
     }
 
@@ -122,27 +138,27 @@ where
         self.kfc_reader.borrow().file()
     }
 
-    pub fn open_resource(
-        &self,
-        id: &ResourceId,
-    ) -> std::io::Result<Option<Take<BufReader<File>>>> {
-        let kfc_reader = self.kfc_reader.borrow();
-        let file = &kfc_reader.file;
-        let resource = match file.resources().get(id) {
-            Some(resource) => resource,
-            None => return Ok(None),
-        };
-
-        let offset = file.data_offset() + resource.offset;
-        let size = resource.size;
-
-        let path = &kfc_reader.kfc_path;
-        let mut reader = BufReader::new(File::open(path)?);
-
-        reader.seek(SeekFrom::Start(offset))?;
-
-        Ok(Some(reader.take(size)))
-    }
+    // pub fn open_resource(
+    //     &self,
+    //     id: &ResourceId,
+    // ) -> std::io::Result<Option<Take<BufReader<File>>>> {
+    //     let kfc_reader = self.kfc_reader.borrow();
+    //     let file = &kfc_reader.file;
+    //     let resource = match file.resources().get(id) {
+    //         Some(resource) => resource,
+    //         None => return Ok(None),
+    //     };
+    //
+    //     let offset = file.data_offset() + resource.offset;
+    //     let size = resource.size;
+    //
+    //     let path = &kfc_reader.kfc_path;
+    //     let mut reader = BufReader::new(File::open(path)?);
+    //
+    //     reader.seek(SeekFrom::Start(offset))?;
+    //
+    //     Ok(Some(reader.take(size)))
+    // }
 
     pub fn read_resource(
         &mut self,
@@ -169,14 +185,99 @@ where
             None => return Ok(false),
         };
 
-        let offset = file.data_offset() + resource.offset;
+        let chunk_start = file.resource_chunks()
+            .iter()
+            .position(|chunk| {
+                (chunk.uncompressed_offset..chunk.uncompressed_offset + chunk.uncompressed_size)
+                    .contains(&resource.offset)
+            });
 
-        dst.resize(resource.size as usize, 0);
+        let chunk_start = match chunk_start {
+            Some(chunk) => chunk,
+            None => return Ok(false),
+        };
 
-        self.reader.seek(SeekFrom::Start(offset))?;
-        self.reader.read_exact(dst)?;
+        let chunk_end = file.resource_chunks()
+            .iter()
+            .rposition(|chunk| {
+                (chunk.uncompressed_offset..=chunk.uncompressed_offset + chunk.uncompressed_size)
+                    .contains(&(resource.offset + resource.size))
+            });
+
+        let chunk_end = match chunk_end {
+            Some(chunk) => chunk,
+            None => return Ok(false),
+        };
+
+        dst.reserve_exact(resource.size.saturating_sub(dst.len() as u64) as usize);
+
+        let mut remaining_size = resource.size;
+        let resource_offset = resource.offset;
+
+        for i in chunk_start..=chunk_end {
+            let base_offset = self.kfc_reader.borrow()
+                .file()
+                .resource_chunks()[i]
+                .uncompressed_offset;
+
+            let chunk_data = self.decompress_chunk(i)?;
+
+            let size = if resource_offset > base_offset {
+                let available = chunk_data.len() as u64 - (resource_offset - base_offset);
+                std::cmp::min(available, remaining_size)
+            } else {
+                let available = chunk_data.len() as u64;
+                std::cmp::min(available, remaining_size)
+            };
+
+            let offset = if resource_offset > base_offset {
+                (resource_offset - base_offset) as usize
+            } else {
+                0
+            };
+
+            dst.extend_from_slice(&chunk_data[offset .. offset + size as usize]);
+            remaining_size -= size;
+        }
 
         Ok(true)
+    }
+
+    fn decompress_chunk(
+        &mut self,
+        index: usize
+    ) -> std::io::Result<&[u8]> {
+        self.decompress_chunk_impl(index)?;
+        Ok(self.chunk_cache.get(&index).unwrap())
+    }
+
+    fn decompress_chunk_impl(
+        &mut self,
+        index: usize
+    ) -> std::io::Result<()> {
+        match self.chunk_cache.get(&index) {
+            Some(_) => Ok(()),
+            None => {
+                let kfc_reader = self.kfc_reader.borrow();
+                let chunk = &kfc_reader.file.resource_chunks()[index];
+
+                self.buffer.clear();
+                self.buffer.resize(chunk.compressed_size as usize, 0);
+
+                self.reader.seek(SeekFrom::Start(chunk.offset))?;
+                self.reader.read_exact(&mut self.buffer[..chunk.compressed_size as usize])?;
+
+                let mut decompressed_data = Vec::with_capacity(chunk.uncompressed_size as usize);
+                zstd::stream::copy_decode(
+                    &mut &self.buffer[..],
+                    &mut decompressed_data
+                )?;
+
+                self.chunk_cache.insert(index, decompressed_data);
+
+                Ok(())
+            }
+        }
     }
 
     pub fn open_content(
