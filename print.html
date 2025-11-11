@@ -897,18 +897,20 @@ All formats follow <a href="https://docs.vulkan.org/spec/latest/chapters/formats
 <p>The game consists of:</p>
 <ul>
 <li><strong>One</strong> <code>.kfc</code> file</li>
+<li><strong>One</strong> <code>.kfc_resources</code> file</li>
 <li><strong>Multiple</strong> <code>.dat</code> files (containers). The number of <code>.dat</code> files is always a <strong>power of two</strong> and they always need to be present even if empty.</li>
 </ul>
 <p>There are two different kinds of assets:</p>
 <ul>
 <li><strong>Resource</strong>: typed binary data (type metadata defined in the <a href="game/kfc/./types.html">types section</a> and bundled inside the executable).
 Resources can be referenced by <code>ObjectReference&lt;T&gt;</code> typed fields.
-They are stored in the <code>.kfc</code> file (after the header) and are <strong>16-byte aligned</strong>.</li>
+They are stored in the <code>.kfc_resources</code> file (after the header) and are <strong>16-byte aligned</strong>.</li>
 <li><strong>Content</strong>: opaque blobs (images, audio, models, voxels, etc.).
 Content assets are referenced by resources via a <code>keen::ContentHash</code> typed field.
 They are stored in the <code>.dat</code> files and are <strong>4096-byte aligned</strong>.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="kfc-file-format-specification"><a class="header" href="#kfc-file-format-specification">KFC File Format Specification</a></h1>
+<p><strong>OUTDATED: This format is based on KFC2. The lastest game version uses KFC3 which is not documented yet.</strong></p>
 <p>Everything is little-endian unless otherwise noted.</p>
 <p>The format of resources is defined in the <a href="game/kfc/./resource.html">resource section</a>.</p>
 <h2 id="header"><a class="header" href="#header">Header</a></h2>
@@ -1079,7 +1081,7 @@ for i in 0 until bundle.count:
 return bundle_resources
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="resource-format-specification"><a class="header" href="#resource-format-specification">Resource Format Specification</a></h1>
-<p>This document describes the format of <strong>resources</strong> stored inside the <code>.kfc</code> file.</p>
+<p>This document describes the format of <strong>resources</strong> stored inside the <code>.kfc_resources</code> file.</p>
 <p>Resources are typed binary objects. The concrete structure of types (fields, type hashes, field offsets, alignments, etc.) is defined in the <a href="game/kfc/./types.html">types section</a>.</p>
 <h2 id="general-notes"><a class="header" href="#general-notes">General Notes</a></h2>
 <ul>

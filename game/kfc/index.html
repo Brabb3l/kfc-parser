@@ -179,13 +179,14 @@
 <p>The game consists of:</p>
 <ul>
 <li><strong>One</strong> <code>.kfc</code> file</li>
+<li><strong>One</strong> <code>.kfc_resources</code> file</li>
 <li><strong>Multiple</strong> <code>.dat</code> files (containers). The number of <code>.dat</code> files is always a <strong>power of two</strong> and they always need to be present even if empty.</li>
 </ul>
 <p>There are two different kinds of assets:</p>
 <ul>
 <li><strong>Resource</strong>: typed binary data (type metadata defined in the <a href="./types.html">types section</a> and bundled inside the executable).
 Resources can be referenced by <code>ObjectReference&lt;T&gt;</code> typed fields.
-They are stored in the <code>.kfc</code> file (after the header) and are <strong>16-byte aligned</strong>.</li>
+They are stored in the <code>.kfc_resources</code> file (after the header) and are <strong>16-byte aligned</strong>.</li>
 <li><strong>Content</strong>: opaque blobs (images, audio, models, voxels, etc.).
 Content assets are referenced by resources via a <code>keen::ContentHash</code> typed field.
 They are stored in the <code>.dat</code> files and are <strong>4096-byte aligned</strong>.</li>
