@@ -116,6 +116,10 @@ impl StructValue {
         Ok(())
     }
 
+    pub fn is_dirty(&self) -> mlua::Result<bool> {
+        Ok(true)
+    }
+
 }
 
 impl UserData for StructValue {
@@ -394,6 +398,10 @@ impl ArrayValue {
         Ok(())
     }
 
+    pub fn is_dirty(&self) -> mlua::Result<bool> {
+        Ok(true)
+    }
+
     fn check_range(
         &self,
         index: usize,
@@ -588,6 +596,10 @@ impl VariantValue {
         r#type: &TypeMetadata,
     ) -> bool {
         self.r#type.deref() == r#type
+    }
+
+    pub fn is_dirty(&self) -> mlua::Result<bool> {
+        Ok(true)
     }
 
 }

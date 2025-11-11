@@ -32,6 +32,42 @@ pub fn validate_and_clone_lua_value(
     Validator::validate_and_clone(lua_value, r#type, lua)
 }
 
+pub fn is_dirty_lua_value(
+    lua_value: &LuaValue,
+) -> mlua::Result<bool> {
+    match lua_value {
+        LuaValue::UserData(ud) => {
+            let type_id = match ud.type_id() {
+                Some(type_id) => type_id,
+                None => panic!("UserData has no type_id"),
+            };
+
+            match type_id {
+                id if id == TypeId::of::<StructValue>() => {
+                    ud.borrow::<StructValue>()?.is_dirty()
+                },
+                id if id == TypeId::of::<MappedStructValue>() => {
+                    ud.borrow::<MappedStructValue>()?.is_dirty()
+                },
+                id if id == TypeId::of::<ArrayValue>() => {
+                    ud.borrow::<ArrayValue>()?.is_dirty()
+                }
+                id if id == TypeId::of::<MappedArrayValue>() => {
+                    ud.borrow::<MappedArrayValue>()?.is_dirty()
+                }
+                id if id == TypeId::of::<VariantValue>() => {
+                    ud.borrow::<VariantValue>()?.is_dirty()
+                },
+                id if id == TypeId::of::<MappedVariantValue>() => {
+                    ud.borrow::<MappedVariantValue>()?.is_dirty()
+                },
+                _ => Ok(false)
+            }
+        },
+        _ => Ok(false)
+    }
+}
+
 pub fn push(
     ud: &AnyUserData,
     value: &LuaValue,

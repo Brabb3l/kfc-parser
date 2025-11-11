@@ -5,7 +5,7 @@ use mod_loader::ModEnvironment;
 use once_cell::unsync::OnceCell;
 use kfc::{container::{KFCCursor, KFCFile, KFCReader, KFCWriter}, guid::{ContentHash, ResourceId}, reflection::{LookupKey, TypeHandle, TypeIndex, TypeRegistry}, resource::value::Value};
 
-use crate::{alias::{MappedValue, PathBuf}, cache::CacheDiff, env::{value::{convert_lua_to_value, convert_value_to_lua, validate_and_clone_lua_value}, Type}, log::warn, lua::{LuaError, LuaValue}, RunArgs};
+use crate::{RunArgs, alias::{MappedValue, PathBuf}, cache::CacheDiff, env::{Type, game::value::is_dirty_lua_value, value::{convert_lua_to_value, convert_value_to_lua, validate_and_clone_lua_value}}, log::warn, lua::{LuaError, LuaValue}};
 
 pub struct AppState {
     env: ModEnvironment,
@@ -413,13 +413,15 @@ impl ResourceInfo {
         let app_state = lua.app_data_ref::<AppState>().unwrap();
         let type_registry = app_state.type_registry();
 
-        // TODO: Check if dirty (deep)
-
         let lua_value = self.value.borrow();
         let lua_value = match lua_value.as_ref() {
             Some(value) => value,
             None => return Ok(None),
         };
+
+        if !is_dirty_lua_value(lua_value)? {
+            return Ok(None);
+        }
 
         let r#type = type_registry
             .get_by_hash(LookupKey::Qualified(self.resource_id.type_hash()))

@@ -1,15 +1,16 @@
-use std::{cell::RefCell, collections::HashMap, ops::Deref, rc::Rc};
+use std::{cell::{Cell, RefCell}, collections::HashMap, ops::Deref, rc::Rc};
 
 use indexmap::IndexMap;
 use kfc::{resource::value::{Value, Variant}, reflection::{PrimitiveType, TypeMetadata}};
 use mlua::{AnyUserData, Function, MetaMethod, UserData};
 use ouroboros::self_referencing;
 
-use crate::{alias::{MappedArray, MappedStruct, MappedVariant, TypeHandle}, env::{value::{converter::{value_to_lua, Converter, LuaConversionErrorKind}, name_of, validate_and_clone_lua_value, validator::try_clone_lua_value}}, lua::{FunctionArgs, LuaError, LuaValue, MethodArgs}};
+use crate::{alias::{MappedArray, MappedStruct, MappedVariant, TypeHandle}, env::{game::value::is_dirty_lua_value, value::{converter::{Converter, LuaConversionErrorKind, value_to_lua}, name_of, validate_and_clone_lua_value, validator::try_clone_lua_value}}, lua::{FunctionArgs, LuaError, LuaValue, MethodArgs}};
 
 pub struct MappedStructValue {
     data: MappedStruct,
     cache: Rc<RefCell<HashMap<String, LuaValue>>>,
+    dirty: Cell<bool>,
 }
 
 impl MappedStructValue {
@@ -19,6 +20,7 @@ impl MappedStructValue {
         Self {
             data,
             cache: Default::default(),
+            dirty: Cell::new(false),
         }
     }
 
@@ -84,6 +86,7 @@ impl MappedStructValue {
         Ok(Self {
             data: self.data.clone(),
             cache: Rc::new(RefCell::new(cache)),
+            dirty: self.dirty.clone(),
         })
     }
 
@@ -135,7 +138,23 @@ impl MappedStructValue {
             );
         }
 
+        self.dirty.set(true);
+
         Ok(())
+    }
+
+    pub fn is_dirty(&self) -> mlua::Result<bool> {
+        if self.dirty.get() {
+            return Ok(true);
+        }
+
+        for value in self.cache.borrow().values() {
+            if is_dirty_lua_value(value)? {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
     }
 
     fn get_field(
@@ -313,6 +332,7 @@ impl UserData for MappedStructValueIter {}
 pub struct MappedArrayValue {
     data: MappedArray,
     values: Rc<RefCell<Vec<MappedArrayValueEntry>>>,
+    dirty: Cell<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -333,6 +353,7 @@ impl MappedArrayValue {
         Self {
             data,
             values: Rc::new(RefCell::new(cache)),
+            dirty: Cell::new(false),
         }
     }
 
@@ -397,6 +418,7 @@ impl MappedArrayValue {
         Ok(Self {
             data: self.data.clone(),
             values: Rc::new(RefCell::new(cloned_cache)),
+            dirty: self.dirty.clone(),
         })
     }
 
@@ -440,6 +462,7 @@ impl MappedArrayValue {
             .map_err(LuaError::external)?;
 
         self.values.borrow_mut()[index] = MappedArrayValueEntry::Value(value);
+        self.dirty.set(true);
 
         Ok(())
     }
@@ -460,6 +483,7 @@ impl MappedArrayValue {
             index,
             MappedArrayValueEntry::Value(value)
         );
+        self.dirty.set(true);
 
         Ok(())
     }
@@ -488,6 +512,7 @@ impl MappedArrayValue {
         )?;
 
         self.values.borrow_mut().remove(index);
+        self.dirty.set(true);
 
         Ok(Some(value))
     }
@@ -496,8 +521,28 @@ impl MappedArrayValue {
         self.check_static()?;
 
         self.values.borrow_mut().clear();
+        self.dirty.set(true);
 
         Ok(())
+    }
+
+    pub fn is_dirty(&self) -> mlua::Result<bool> {
+        if self.dirty.get() {
+            return Ok(true);
+        }
+
+        for value in self.values.borrow().iter() {
+            match value {
+                MappedArrayValueEntry::Uninitialized(_) => {},
+                MappedArrayValueEntry::Value(lua_value) => {
+                    if is_dirty_lua_value(lua_value)? {
+                        return Ok(true);
+                    }
+                },
+            }
+        }
+
+        Ok(false)
     }
 
     fn get_field(
@@ -677,6 +722,7 @@ impl UserData for MappedArrayValueIter {}
 pub struct MappedVariantValue {
     data: MappedVariant,
     value: RefCell<Option<LuaValue>>,
+    dirty: Cell<bool>,
 }
 
 impl MappedVariantValue {
@@ -685,6 +731,7 @@ impl MappedVariantValue {
         Self {
             data,
             value: RefCell::new(None),
+            dirty: Cell::new(false),
         }
     }
 
@@ -732,7 +779,8 @@ impl MappedVariantValue {
             value: match self.value.borrow().as_ref() {
                 Some(value) => RefCell::new(Some(try_clone_lua_value(value, lua)?)),
                 None => RefCell::new(None),
-            }
+            },
+            dirty: self.dirty.clone(),
         })
     }
 
@@ -741,6 +789,18 @@ impl MappedVariantValue {
         r#type: &TypeMetadata,
     ) -> bool {
         self.r#type().deref() == r#type
+    }
+
+    pub fn is_dirty(&self) -> mlua::Result<bool> {
+        if self.dirty.get() {
+            return Ok(true);
+        }
+
+        if let Some(value) = self.value.borrow().as_ref() {
+            return is_dirty_lua_value(value);
+        }
+
+        Ok(false)
     }
 
 }
@@ -769,6 +829,7 @@ impl UserData for MappedVariantValue {
                 .map_err(LuaError::external)?;
 
             this.value.replace(Some(value));
+            this.dirty.set(true);
 
             Ok(())
         });
