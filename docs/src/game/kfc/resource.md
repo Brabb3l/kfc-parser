@@ -1,6 +1,6 @@
 # Resource Format Specification
 
-This document describes the format of **resources** stored inside the `.kfc` file.
+This document describes the format of **resources** stored inside the `.kfc_resources` file.
 
 Resources are typed binary objects. The concrete structure of types (fields, type hashes, field offsets, alignments, etc.) is defined in the [types section](./types.md).
 

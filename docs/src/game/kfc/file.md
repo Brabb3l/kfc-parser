@@ -1,5 +1,7 @@
 # KFC File Format Specification
 
+**OUTDATED: This format is based on KFC2. The lastest game version uses KFC3 which is not documented yet.**
+
 Everything is little-endian unless otherwise noted.
 
 The format of resources is defined in the [resource section](./resource.md).
