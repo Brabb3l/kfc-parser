@@ -185,6 +185,16 @@ where
             None => return Ok(false),
         };
 
+        // TEMPORARY: until the game devs fix this resource size issue
+        const RID: ResourceId = ResourceId::parse_qualified("509feadb-4c60-425f-9c7c-deeefd9b6920_21b2a090_3").unwrap();
+
+        let resource_size = if guid == &RID && resource.size < 0x1000000 {
+            resource.size + 0x1000000
+        } else {
+            resource.size
+        };
+        // END TEMPORARY
+
         let chunk_start = file.resource_chunks()
             .iter()
             .position(|chunk| {
@@ -201,7 +211,7 @@ where
             .iter()
             .rposition(|chunk| {
                 (chunk.uncompressed_offset..=chunk.uncompressed_offset + chunk.uncompressed_size)
-                    .contains(&(resource.offset + resource.size))
+                    .contains(&(resource.offset + resource_size))
             });
 
         let chunk_end = match chunk_end {
@@ -209,9 +219,9 @@ where
             None => return Ok(false),
         };
 
-        dst.reserve_exact(resource.size.saturating_sub(dst.len() as u64) as usize);
+        dst.reserve_exact(resource_size.saturating_sub(dst.len() as u64) as usize);
 
-        let mut remaining_size = resource.size;
+        let mut remaining_size = resource_size;
         let resource_offset = resource.offset;
 
         for i in chunk_start..=chunk_end {
