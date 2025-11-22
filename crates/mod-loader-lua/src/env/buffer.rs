@@ -3,7 +3,7 @@ use std::{ops::Deref, rc::Rc};
 use half::f16;
 use mlua::{IntoLua, MetaMethod, UserData};
 
-use crate::{alias::MappedValue, env::{game::value::convert_lua_to_value, util::{add_function, get_type}, value::convert_value_to_lua}, lua::{FunctionArgs, LuaError, LuaValue, MethodArgs}};
+use crate::{alias::MappedValue, env::{game::value::{convert_lua_to_value, validate_and_clone_lua_value}, util::{add_function, get_type}, value::convert_value_to_lua}, lua::{FunctionArgs, LuaError, LuaValue, MethodArgs}};
 
 use super::AppState;
 
@@ -585,8 +585,13 @@ fn lua_write_resource(
     let r#type = get_type(&args, 0, type_registry.clone())?;
     let lua_value = args.get::<LuaValue>(1)?;
 
-    let value = convert_lua_to_value(
+    let lua_value = validate_and_clone_lua_value(
         lua_value,
+        &r#type,
+        lua
+    ).map_err(LuaError::external)?;
+    let value = convert_lua_to_value(
+        &lua_value,
         &r#type
     ).map_err(LuaError::external)?;
 
