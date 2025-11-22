@@ -266,7 +266,7 @@ impl<'a, 'b> ImpactProgramDecompiler<'a, 'b> {
                         }
                     }
                 }
-                Some(ImpactOps::ECall(index)) => {
+                Some(ImpactOps::ECall(_, index)) => {
                     // expect pop instruction
                     match self.instructions.get(*pc + 1) {
                         Some(ImpactOps::Pop) => {
@@ -438,7 +438,7 @@ impl<'a, 'b> ImpactProgramDecompiler<'a, 'b> {
                         configs.insert(0, Value::None);
                     }
                 },
-                Some(ImpactOps::ECall(_)) => {
+                Some(ImpactOps::ECall(_, _)) => {
                     *pc += 1;
                     self.nodes.push(ImpactNodeInfo {
                         r#type: function.r#type.name.into(),

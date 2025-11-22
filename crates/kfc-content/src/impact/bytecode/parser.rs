@@ -145,8 +145,8 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
             KeywordKind::Store => ImpactOps::Store(self.parse_data()?),
             KeywordKind::GStore => ImpactOps::GStore(self.parse_data()?),
 
-            KeywordKind::Call => ImpactOps::Call(self.parse_call_type()?),
-            KeywordKind::ECall => ImpactOps::ECall(self.parse_call_type()?),
+            KeywordKind::Call => ImpactOps::Call(self.parse_number()?, self.parse_call_type()?),
+            KeywordKind::ECall => ImpactOps::ECall(self.parse_number()?, self.parse_call_type()?),
 
             KeywordKind::Unknown => ImpactOps::Unknown(self.parse_number()?),
         };

@@ -74,10 +74,10 @@ impl ImpactAssembler<'_> {
 
                     write!(out, " {}", layout.dbg_name)?;
                 }
-                ImpactOps::Call(hash) |
-                ImpactOps::ECall(hash) => {
+                ImpactOps::Call(unk, hash) |
+                ImpactOps::ECall(unk, hash) => {
                     if let Some(node) = self.get_call_type(*hash) {
-                        write!(out, " {} # (", node.name)?;
+                        write!(out, " {} {} # (", unk, node.name)?;
 
                         let mut count = 0;
 
@@ -104,7 +104,7 @@ impl ImpactAssembler<'_> {
                         write!(out, ")")?;
                     } else {
                         println!("Missing type info for hash: {:08X}", hash);
-                        write!(out, " {} # missing type info", hash)?;
+                        write!(out, " {} {} # missing type info", unk, hash)?;
                     }
                 },
                 ImpactOps::Unknown(value) => write!(out, "{:08X}", value)?,

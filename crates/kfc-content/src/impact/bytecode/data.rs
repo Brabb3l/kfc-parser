@@ -16,6 +16,7 @@ use super::{ImpactCommand, ImpactVariable};
 #[serde(rename_all = "camelCase")]
 pub struct ImpactProgramData {
     pub data: Vec<ImpactProgramDataEntry>,
+    pub query_call_ids: Vec<u32>,
     pub used_streams: Vec<EventStream>,
 }
 
@@ -103,6 +104,7 @@ impl ImpactProgramData {
 
         Ok(Self {
             data: data_entries,
+            query_call_ids: program.query_call_ids.clone(),
             used_streams: program.used_streams.clone(),
         })
     }
@@ -115,9 +117,10 @@ impl ImpactProgramData {
         code_shutdown: Vec<ImpactCommand>,
     ) -> anyhow::Result<ImpactProgram> {
         let id = HashKey32::from(guid.hash32());
-        let program_guid = guid;
+        let program_guid = guid.to_string();
         let stack_size = 256;
         let used_streams = self.used_streams;
+        let query_call_ids = self.query_call_ids;
 
         let mut buf = Vec::new();
         let mut data = Vec::new();
@@ -194,6 +197,7 @@ impl ImpactProgramData {
             code_shutdown,
             data_layout,
             data,
+            query_call_ids,
         })
     }
 

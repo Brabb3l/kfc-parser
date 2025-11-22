@@ -30,11 +30,12 @@ pub struct ImpactVariable {
 #[serde(rename_all = "camelCase")]
 pub struct ImpactProgram {
     pub id: ProgramId, // fnv hash of the program_guid
-    pub program_guid: ContentHash, // BlobGuid part of the object guid
+    pub program_guid: String, // BlobGuid part of the object guid
     pub stack_size: u16,
     pub used_streams: Vec<EventStream>,
     pub code: Vec<ImpactCommand>,
     pub code_shutdown: Vec<ImpactCommand>,
     pub data_layout: Vec<ImpactVariable>,
+    pub query_call_ids: Vec<u32>,
     pub data: Vec<u8>,
 }

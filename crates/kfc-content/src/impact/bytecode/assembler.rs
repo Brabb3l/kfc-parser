@@ -70,8 +70,16 @@ impl<'a> ImpactAssembler<'a> {
                     let index = code[ptr];
                     ptr += 1;
                     index
+                }, {
+                    let index = code[ptr];
+                    ptr += 1;
+                    index
                 }),
                 0x13 => ImpactOps::ECall({
+                    let index = code[ptr];
+                    ptr += 1;
+                    index
+                }, {
                     let index = code[ptr];
                     ptr += 1;
                     index
@@ -147,12 +155,14 @@ impl<'a> ImpactAssembler<'a> {
                 ImpactOps::Dec => instructions.push(0x0F),
                 ImpactOps::Copy => instructions.push(0x10),
                 ImpactOps::Dup => instructions.push(0x11),
-                ImpactOps::Call(index) => {
+                ImpactOps::Call(unk, index) => {
                     instructions.push(0x12);
+                    instructions.push(*unk);
                     instructions.push(*index);
                 },
-                ImpactOps::ECall(index) => {
+                ImpactOps::ECall(unk, index) => {
                     instructions.push(0x13);
+                    instructions.push(*unk);
                     instructions.push(*index);
                 },
                 ImpactOps::Ret => instructions.push(0x14),
@@ -207,7 +217,7 @@ pub enum ImpactOps {
     Dec = 0x0F, // unused
     Copy = 0x10, // unused
     Dup = 0x11,
-    Call(u32) = 0x12, // unused
+    Call(u32, u32) = 0x12, // unused
     // Call pops each type of argument from the top of the stack until all arguments are consumed.
     // First comes the input arguments, then config arguments and finally the output arguments.
     // f.e.:
@@ -226,7 +236,7 @@ pub enum ImpactOps {
     // - flag
     // - output2
     // - output1
-    ECall(u32) = 0x13,
+    ECall(u32, u32) = 0x13,
     Ret = 0x14, // unused
     Load(u32) = 0x15, // unused
     GLoad(u32) = 0x16,
@@ -263,8 +273,8 @@ impl ImpactOps {
             Self::Dec => "dec",
             Self::Copy => "copy",
             Self::Dup => "dup",
-            Self::Call(_) => "call",
-            Self::ECall(_) => "ecall",
+            Self::Call(_, _) => "call",
+            Self::ECall(_, _) => "ecall",
             Self::Ret => "ret",
             Self::Load(_) => "load",
             Self::GLoad(_) => "gload",
@@ -300,8 +310,8 @@ impl ImpactOps {
             Self::Dec => 1,
             Self::Copy => 1,
             Self::Dup => 1,
-            Self::Call(_) => 2,
-            Self::ECall(_) => 2,
+            Self::Call(_, _) => 3,
+            Self::ECall(_, _) => 3,
             Self::Ret => 1,
             Self::Load(_) => 2,
             Self::GLoad(_) => 2,
