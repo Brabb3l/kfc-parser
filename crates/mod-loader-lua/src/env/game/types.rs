@@ -174,7 +174,7 @@ impl Deref for Type {
 impl UserData for Type {
 
     fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
-        fields.add_field_method_get("name", |_, this| Ok(this.qualified_name.clone()));
+        fields.add_field_method_get("name", |_, this| Ok(this.name.clone()));
         fields.add_field_method_get("impact_name", |_, this| Ok(this.impact_name.clone()));
         fields.add_field_method_get("qualified_name", |_, this| Ok(this.qualified_name.clone()));
 
