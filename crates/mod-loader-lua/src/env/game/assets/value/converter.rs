@@ -213,7 +213,7 @@ impl Converter {
         r#type: &TypeHandle,
     ) -> Result<Value, LuaConversionErrorKind> {
         match value {
-            LuaValue::UserData(ud) => self.try_convert_struct_ud(ud, r#type),
+            LuaValue::UserData(ud) => self.try_convert_array_ud(ud, r#type),
             _ => Err(LuaConversionErrorKind::IncompatibleType {
                 expected: name_of(r#type),
                 found: value.to_string()?,
