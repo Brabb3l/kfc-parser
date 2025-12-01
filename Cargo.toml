@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = [
+    "crates/testing",
+
     "crates/kfc",
     "crates/kfc-base",
     "crates/kfc-content",
@@ -15,6 +17,7 @@ members = [
     "crates/mod-manager-gui",
 
     "crates/dinput8-proxy",
+    "crates/dbghelp-proxy",
 
     "crates/cli-legacy",
 ]

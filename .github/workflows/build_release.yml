@@ -28,6 +28,10 @@ jobs:
             os: windows-latest
             target: x86_64-pc-windows-msvc
             output: dinput8.dll
+          - name: dbghelp-proxy
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            output: dbghelp.dll
         profile:
           - release
 

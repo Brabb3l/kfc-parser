@@ -531,6 +531,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dbghelp-proxy"
+version = "0.1.0"
+dependencies = [
+ "camino",
+ "mod-loader",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "windows",
+]
+
+[[package]]
 name = "deflate64"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
