@@ -51,7 +51,7 @@ pub fn run(
 
         let cache_diff = new_cache.diff(&current_cache);
 
-        if cache_diff.is_none() {
+        if cache_diff.is_none() && args.options.patch {
             info!("No changes detected, skipping patching");
 
             return Ok(());
@@ -123,12 +123,19 @@ pub fn run(
 
     // create a new cache file
 
-    let mut new_cache = FileStateCache::default();
+    if app_state.has_feature(AppFeatures::PATCH) {
+        let mut new_cache = FileStateCache::default();
 
-    new_cache.track_game_files(env.game_dir());
-    new_cache.track_mod_files(env.mods_dir());
+        new_cache.track_game_files(env.game_dir());
+        new_cache.track_mod_files(env.mods_dir());
 
-    new_cache.write(env.cache_dir());
+        new_cache.write(env.cache_dir());
+    } else {
+        let mut new_cache = FileStateCache::read(env.cache_dir());
+
+        new_cache.track_game_files(env.game_dir());
+        new_cache.write(env.cache_dir());
+    }
 
     Ok(())
 }
