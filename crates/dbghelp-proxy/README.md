@@ -16,13 +16,13 @@ WINEDLLOVERRIDES="dbghelp=native,builtin" %command%
 For servers or standalone execution, run the game executable with:
 
 ```bash
-WINEDLLOVERRIDES="dbghelp=native,builtin" wine path/to/Enshrouded.exe
+WINEDLLOVERRIDES="dbghelp=native,builtin" wine path/to/enshrouded.exe
 ```
 
 or with Proton:
 
 ```bash
-WINEDLLOVERRIDES="dbghelp=native,builtin" proton run path/to/Enshrouded.exe
+WINEDLLOVERRIDES="dbghelp=native,builtin" proton run path/to/enshrouded.exe
 ```
 
 ## Development on Steam (Linux Only)
