@@ -4,7 +4,7 @@ use kfc::{guid::Guid, reflection::PrimitiveType, resource::{mapped::MappingError
 use mlua::AnyUserData;
 use thiserror::Error;
 
-use crate::{alias::{MappedBitmask, MappedValue, TypeHandle}, env::value::{convert_value_to_lua, mapped::{MappedArrayValue, MappedStructValue, MappedVariantValue}, name_of, simple::{ArrayValue, StructValue, VariantValue}, util::TreePath}, lua::{LuaError, LuaValue}};
+use crate::{alias::{MappedValue, TypeHandle}, env::value::{convert_value_to_lua, mapped::{MappedArrayValue, MappedStructValue, MappedVariantValue}, name_of, simple::{ArrayValue, StructValue, VariantValue}, util::TreePath}, lua::{LuaError, LuaValue}};
 
 #[derive(Debug, Error)]
 #[error("at {path}: {kind}")]
@@ -520,7 +520,26 @@ pub fn value_to_lua(
                 .unwrap_or_else(|| lua.create_string(v.value().to_string()))
                 .map(LuaValue::String)?
         },
-        MappedValue::Bitmask(v) => bitmask_to_lua(lua, v)?,
+        MappedValue::Bitmask(v) => {
+            let wrapper = ArrayValue::new_with_data(
+                v.r#type().clone(),
+                v.iter()
+                    .map(|bit| {
+                        match bit.name() {
+                            Some(name) => {
+                                lua.create_string(name)
+                                    .map(LuaValue::String)
+                            },
+                            None => {
+                                lua.create_string(bit.value().to_string())
+                                    .map(LuaValue::String)
+                            },
+                        }
+                    })
+                    .collect::<mlua::Result<Vec<_>>>()?,
+            )?;
+            LuaValue::UserData(lua.create_userdata(wrapper)?)
+        },
         MappedValue::Struct(v) => {
             let wrapper = MappedStructValue::new(v.clone());
             LuaValue::UserData(lua.create_userdata(wrapper)?)
@@ -556,31 +575,4 @@ pub fn value_to_lua(
     };
 
     Ok(lua_value)
-}
-
-fn bitmask_to_lua(
-    lua: &mlua::Lua,
-    bitmask: &MappedBitmask,
-) -> mlua::Result<LuaValue> {
-    let table = lua.create_table_with_capacity(
-        bitmask.value().count_ones() as usize,
-        0
-    )?;
-
-    for bit in bitmask.iter() {
-        let value = match bit.name() {
-            Some(name) => {
-                lua.create_string(name)
-                    .map(LuaValue::String)?
-            },
-            None => {
-                lua.create_string(bit.value().to_string())
-                    .map(LuaValue::String)?
-            },
-        };
-
-        table.push(value)?;
-    }
-
-    Ok(LuaValue::Table(table))
 }
