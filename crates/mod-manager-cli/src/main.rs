@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use clap::Parser;
 use dialoguer::{theme::ColorfulTheme, Input, MultiSelect};
 use mod_loader::{lua::{export_lua_definitions, RunArgs, RunOptions}, Capability, ModEnvironment, ModManifest};
+use semver::Version;
 
 use crate::{cli::{Cli, Commands}, log::{error, info}};
 
@@ -111,6 +112,7 @@ fn create(
         .with_prompt("Version")
         .default("0.1.0".to_string())
         .interact_text()?;
+    let mod_version = Version::parse(&mod_version)?;
     let mod_author: String = Input::with_theme(&theme)
         .with_prompt("Author")
         .default("".to_string())

@@ -43,6 +43,7 @@ indexmap = { version = "2.9.0", features = ["serde"] }
 uuid = { version = "1.18.0", features = ["v4"] }
 crc = "3.3.0"
 camino = "1.1.11"
+semver = { version = "1.0", features = ["serde"] }
 
 # processing
 half = "2.6.0"
