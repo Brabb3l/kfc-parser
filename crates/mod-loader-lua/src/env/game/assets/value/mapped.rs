@@ -7,6 +7,8 @@ use ouroboros::self_referencing;
 
 use crate::{alias::{MappedArray, MappedStruct, MappedVariant, TypeHandle}, env::{game::value::is_dirty_lua_value, value::{converter::{Converter, LuaConversionErrorKind, value_to_lua}, name_of, validate_and_clone_lua_value, validator::try_clone_lua_value}}, lua::{FunctionArgs, LuaError, LuaValue, MethodArgs}};
 
+// TODO: Add MappedBitmaskValue
+
 pub struct MappedStructValue {
     data: MappedStruct,
     cache: Rc<RefCell<HashMap<String, LuaValue>>>,

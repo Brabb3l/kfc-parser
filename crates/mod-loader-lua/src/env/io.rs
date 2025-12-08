@@ -202,7 +202,6 @@ fn lua_export(
     let app_state = lua.app_data_ref::<AppState>().unwrap();
 
     if !app_state.has_feature(AppFeatures::EXPORT) {
-        // TODO: maybe skip with warning instead of error?
         return Err(LuaError::generic("exporting is disabled"));
     }
 
