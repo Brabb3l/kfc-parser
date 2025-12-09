@@ -261,7 +261,15 @@ impl UserData for MappedStructValue {
                 result.push('"');
                 result.push_str(key);
                 result.push_str("\":");
-                result.push_str(&value.to_string()?);
+                // Add quotes to value if it is a string
+                if value.is_string() {
+                    result.push('"');
+                    (result).push_str(&value.to_string()?);
+                    result.push('"');
+                }
+                else {
+                    (result).push_str(&value.to_string()?);
+                }
             }
 
             result.push('}');
@@ -655,11 +663,18 @@ impl UserData for MappedArrayValue {
                     }
                     MappedArrayValueEntry::Value(lua_value) => lua_value,
                 };
-
-                result.push_str(&value.to_string()?);
+                // Add quotes to value if it is a string
+                if value.is_string() {
+                    result.push('"');
+                    (result).push_str(&value.to_string()?);
+                    result.push('"');
+                }
+                else {
+                    (result).push_str(&value.to_string()?);
+                }
             }
 
-            result.push('}');
+            result.push(']');
 
             Ok(LuaValue::String(lua.create_string(result)?))
         });
