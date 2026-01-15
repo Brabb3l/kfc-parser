@@ -191,19 +191,23 @@ to load and manage mods for the game Enshrouded.</p>
 </ol>
 <h2 id="using-the-proxy-dll-recommended"><a class="header" href="#using-the-proxy-dll-recommended">Using the Proxy DLL (Recommended)</a></h2>
 <p>This is the recommended way to use EML as it provides a seamless experience
-for loading mods directly when launching the game.</p>
+for loading mods directly when launching the game.
+This works for both client and server installations of Enshrouded.</p>
 <h3 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h3>
 <ul>
 <li>Ensure you have a legal copy of the game Enshrouded installed on your system.</li>
-<li>Download the latest version of the <a href="https://github.com/Brabb3l/kfc-parser/actions/workflows/build_release.yml">dinput8.dll</a> binary.</li>
+<li>Download the latest version of the <a href="https://github.com/Brabb3l/kfc-parser/releases">dbghelp.dll</a> binary.</li>
+<li>If you used EML before with the <code>dbghelp.dll</code> proxy, make sure to remove it
+from your game directory to avoid conflicts.</li>
 </ul>
 <h3 id="installation"><a class="header" href="#installation">Installation</a></h3>
 <ol>
 <li>Extract the contents of the downloaded archive.</li>
-<li>Copy the <code>dinput8.dll</code> file to the root directory of your Enshrouded installation.</li>
+<li>Copy the <code>dbghelp.dll</code> file to the root directory of your Enshrouded installation.</li>
 <li>Create a <code>mods</code> directory in the root directory of your Enshrouded installation
 if it doesn't already exist.</li>
 <li>Place the mods you want to use in the <code>mods</code> directory.</li>
+<li>For linux users, follow the additional instructions in the <a href="eml/usage.html#linux-users">Linux Users</a> section.</li>
 <li>(Optional) Modify the <a href="eml/usage.html#emljson-configuration"><code>eml.json</code></a> configuration file.
 <ul>
 <li>Useful for enabling the console or export capabilities.</li>
@@ -211,6 +215,20 @@ if it doesn't already exist.</li>
 </li>
 <li>Launch the game.</li>
 </ol>
+<p><strong>IMPORTANT:</strong> If you used EML before with the <code>dbghelp.dll</code> proxy, make sure to remove it from your game directory to avoid conflicts.</p>
+<h3 id="linux-users"><a class="header" href="#linux-users">Linux Users</a></h3>
+<p>Using <code>dbghelp-proxy</code> with Wine/Proton or on Steam requires some additional setup.</p>
+<p>For clients on Steam, change the launch options (Enshrouded &gt; Properties &gt; General &gt; Launch Options) to:</p>
+<pre><code class="language-bash">WINEDLLOVERRIDES="dbghelp=native,builtin" %command%
+</code></pre>
+<p>For servers or standalone execution, run the game executable with:</p>
+<pre><code class="language-bash">WINEDLLOVERRIDES="dbghelp=native,builtin" wine path/to/enshrouded.exe
+</code></pre>
+<p>or with Proton:</p>
+<pre><code class="language-bash">WINEDLLOVERRIDES="dbghelp=native,builtin" proton run path/to/enshrouded.exe
+</code></pre>
+<h3 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h3>
+<p>If you encounter issues on the client, try <code>dinput8.dll</code> instead of <code>dbghelp.dll</code>.</p>
 <h3 id="emljson-configuration"><a class="header" href="#emljson-configuration"><code>eml.json</code> Configuration</a></h3>
 <p>This file is created automatically when you launch the game for the first time with the proxy DLL.</p>
 <ul>
@@ -227,7 +245,7 @@ Additionally, it can also be used to run mods with the <code>export</code> capab
 <h3 id="prerequisites-1"><a class="header" href="#prerequisites-1">Prerequisites</a></h3>
 <ul>
 <li>Ensure you have a legal copy of the game Enshrouded installed on your system.</li>
-<li>Download the latest version of the <a href="https://github.com/Brabb3l/kfc-parser/actions/workflows/build_release.yml">emm.exe</a> binary.</li>
+<li>Download the latest version of the <a href="https://github.com/Brabb3l/kfc-parser/releases">emm.exe</a> binary.</li>
 <li>A terminal or command prompt of your choice.</li>
 <li>Basic knowledge of command line usage.</li>
 </ul>
