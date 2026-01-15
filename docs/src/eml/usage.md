@@ -12,22 +12,55 @@ There are currently two ways to use EML:
 
 This is the recommended way to use EML as it provides a seamless experience
 for loading mods directly when launching the game.
+This works for both client and server installations of Enshrouded.
 
 ### Prerequisites
 
 - Ensure you have a legal copy of the game Enshrouded installed on your system.
-- Download the latest version of the [dinput8.dll](https://github.com/Brabb3l/kfc-parser/actions/workflows/build_release.yml) binary.
+- Download the latest version of the [dbghelp.dll](https://github.com/Brabb3l/kfc-parser/releases) binary.
+- If you used EML before with the `dbghelp.dll` proxy, make sure to remove it
+  from your game directory to avoid conflicts.
 
 ### Installation
 
 1. Extract the contents of the downloaded archive.
-2. Copy the `dinput8.dll` file to the root directory of your Enshrouded installation.
+2. Copy the `dbghelp.dll` file to the root directory of your Enshrouded installation.
 3. Create a `mods` directory in the root directory of your Enshrouded installation
    if it doesn't already exist.
 4. Place the mods you want to use in the `mods` directory.
-5. (Optional) Modify the [`eml.json`](#emljson-configuration) configuration file.
+5. For linux users, follow the additional instructions in the [Linux Users](#linux-users) section.
+6. (Optional) Modify the [`eml.json`](#emljson-configuration) configuration file.
     - Useful for enabling the console or export capabilities.
-6. Launch the game.
+7. Launch the game.
+
+**IMPORTANT:** If you used EML before with the `dbghelp.dll` proxy, make sure to remove it from your game directory to avoid conflicts.
+
+### Linux Users
+
+Using `dbghelp-proxy` with Wine/Proton or on Steam requires some additional setup.
+
+For clients on Steam, change the launch options (Enshrouded > Properties > General > Launch Options) to:
+
+```bash
+WINEDLLOVERRIDES="dbghelp=native,builtin" %command%
+```
+
+For servers or standalone execution, run the game executable with:
+
+```bash
+WINEDLLOVERRIDES="dbghelp=native,builtin" wine path/to/enshrouded.exe
+```
+
+or with Proton:
+
+```bash
+WINEDLLOVERRIDES="dbghelp=native,builtin" proton run path/to/enshrouded.exe
+```
+
+
+### Troubleshooting
+
+If you encounter issues on the client, try `dinput8.dll` instead of `dbghelp.dll`.
 
 ### `eml.json` Configuration
 
@@ -48,7 +81,7 @@ Additionally, it can also be used to run mods with the `export` capability.
 ### Prerequisites
 
 - Ensure you have a legal copy of the game Enshrouded installed on your system.
-- Download the latest version of the [emm.exe](https://github.com/Brabb3l/kfc-parser/actions/workflows/build_release.yml) binary.
+- Download the latest version of the [emm.exe](https://github.com/Brabb3l/kfc-parser/releases) binary.
 - A terminal or command prompt of your choice.
 - Basic knowledge of command line usage.
 
