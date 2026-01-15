@@ -1,0 +1,12 @@
+[package]
+name = "kfc-resource"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+[dependencies]
+kfc = { package = "kfc-base", path = "../kfc-base" }
+
+thiserror.workspace = true
+serde.workspace = true
+indexmap.workspace = true

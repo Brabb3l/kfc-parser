@@ -1,0 +1,15 @@
+[package]
+name = "mod-loader"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+[dependencies]
+mod-loader-base = { path = "../mod-loader-base" }
+mod-loader-lua = { path = "../mod-loader-lua", optional = true }
+mod-loader-runtime = { path = "../mod-loader-runtime", optional = true }
+
+[features]
+default = []
+lua = ["mod-loader-lua"]
+runtime = ["mod-loader-runtime"]

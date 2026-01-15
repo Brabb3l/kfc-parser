@@ -1,0 +1,14 @@
+[package]
+name = "kfc-base"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+bitflags.workspace = true
+indexmap.workspace = true
+
+aes = { version = "0.8.4", features = ["hazmat"] }
+zstd = "0.13.3"

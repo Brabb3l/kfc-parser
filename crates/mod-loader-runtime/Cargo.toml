@@ -1,0 +1,8 @@
+[package]
+name = "mod-loader-runtime"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+[dependencies]
+mod-loader = { package = "mod-loader-base", path = "../mod-loader-base" }

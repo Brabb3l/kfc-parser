@@ -1,0 +1,68 @@
+name: Build Debug Binaries
+
+on:
+  push:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  tools:
+    strategy:
+      matrix:
+        binary:
+          - name: cli-legacy
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            output: kfc-parser.exe
+            test: true
+          - name: mod-manager-cli
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            output: emm.exe
+            test: true
+          - name: dinput8-proxy
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            output: dinput8.dll
+          - name: dbghelp-proxy
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            output: dbghelp.dll
+        profile:
+          - dev
+
+    runs-on: ${{ matrix.binary.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.binary.nightly && 'nightly' || '1.88.0' }}
+          targets: ${{ matrix.binary.target }}
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.profile }}
+
+      # Build and Test
+
+      - name: Build
+        run: cargo ${{ matrix.binary.nightly && '+nightly' || '' }} build --target ${{ matrix.binary.target }} -p ${{ matrix.binary.name }} --locked --verbose --profile ${{ matrix.profile }}
+
+      - name: Test
+        if: ${{ matrix.binary.test == true }}
+        run: cargo ${{ matrix.binary.nightly && '+nightly' || '' }} test --target ${{ matrix.binary.target }} -p ${{ matrix.binary.name }} --locked --verbose --profile ${{ matrix.profile }}
+
+      # Upload
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary.output }} (${{ matrix.profile == 'dev' && 'debug' || matrix.profile }})
+          path: target/${{ matrix.binary.target }}/${{ matrix.profile == 'dev' && 'debug' || matrix.profile}}/${{ matrix.binary.output }}
+          retention-days: 90
+          if-no-files-found: error

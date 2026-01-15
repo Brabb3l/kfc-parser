@@ -1,0 +1,19 @@
+[package]
+name = "kfc-content"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+[dependencies]
+kfc = { package = "kfc-base", path = "../kfc-base" }
+kfc-resource = { package = "kfc-resource", path = "../kfc-resource" }
+
+anyhow.workspace = true # TODO: Remove this dependency (used only for prototyping)
+thiserror.workspace = true
+serde.workspace = true
+
+half.workspace = true
+image.workspace = true
+
+hound = "3.5.1"
+block_compression = { version = "0.6.0", default-features = false, features = ["bc15", "bc6h", "bc7"] }

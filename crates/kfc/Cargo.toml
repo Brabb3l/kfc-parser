@@ -1,0 +1,18 @@
+[package]
+name = "kfc"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+[dependencies]
+kfc-base = { path = "../kfc-base" }
+kfc-resource = { path = "../kfc-resource", optional = true }
+kfc-content = { path = "../kfc-content", optional = true }
+
+[features]
+default = ["resource"]
+resource = ["kfc-resource"]
+content = ["kfc-content"]
+
+[dev-dependencies]
+serde_json.workspace = true
