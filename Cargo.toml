@@ -22,7 +22,7 @@ members = [
 
 [workspace.package]
 edition = "2024"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Brabb3l"]
 license = "GPL-3.0-or-later"
 license-file = "LICENSE"
