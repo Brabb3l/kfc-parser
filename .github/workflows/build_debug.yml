@@ -12,22 +12,22 @@ jobs:
       matrix:
         binary:
           - name: cli-legacy
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
+            os: ubuntu-latest
+            target: x86_64-pc-windows-gnu
             output: kfc-parser.exe
             test: true
           - name: mod-manager-cli
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
+            os: ubuntu-latest
+            target: x86_64-pc-windows-gnu
             output: emm.exe
             test: true
           - name: dinput8-proxy
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
+            os: ubuntu-latest
+            target: x86_64-pc-windows-gnu
             output: dinput8.dll
           - name: dbghelp-proxy
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
+            os: ubuntu-latest
+            target: x86_64-pc-windows-gnu
             output: dbghelp.dll
         profile:
           - dev
