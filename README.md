@@ -8,6 +8,10 @@ A tool used to load mods for the game Enshrouded.
 
 Documentation can be found [here](https://brabb3l.github.io/kfc-parser).  
 
+## Discord Server
+
+Join our [Discord server](https://discord.gg/HKKyeMsKfW) to talk about EML and Enshrouded modding in general.
+
 ## KFC Parser CLI (deprecated)
 
 - Unpacking and repacking (1:1) all types of descriptor files.
