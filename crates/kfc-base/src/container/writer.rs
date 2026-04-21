@@ -413,7 +413,21 @@ where
         let mut file = KFCFile::default();
 
         file.set_game_version(self.game_version);
-        file.set_resources(self.resources.build(), self.type_registry.borrow());
+        // In incremental mode, pass the reference file's existing resource
+        // bundles as a fallback so types added by newer game versions (whose
+        // reflection data isn't in the loaded type registry) preserve their
+        // original `internal_hash` instead of panicking.
+        match self.incremental_data.as_ref() {
+            Some(data) => file.set_resources_with_fallback(
+                self.resources.build(),
+                self.type_registry.borrow(),
+                data.reference_file.borrow().resource_bundles(),
+            ),
+            None => file.set_resources(
+                self.resources.build(),
+                self.type_registry.borrow(),
+            ),
+        }
         file.set_contents(self.contents.build());
         file.set_containers(containers);
         file.set_resource_chunks(chunks);

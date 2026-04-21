@@ -142,7 +142,27 @@ impl KFCFile {
     ) {
         self.resources = resources;
         self.resource_locations[0].count = self.resources.len();
-        self.rebuild_resource_bundles(type_registry);
+        self.rebuild_resource_bundles(type_registry, None);
+    }
+
+    /// Same as [`Self::set_resources`], but consults `fallback` for the
+    /// `internal_hash` of any resource type that is not present in
+    /// `type_registry`.
+    ///
+    /// This is useful for incremental writers: when a game update introduces
+    /// new resource types whose reflection data isn't yet modelled by the
+    /// extractor, the writer can pass the reference (pre-edit) file's
+    /// `resource_bundles` as a fallback so the rebuilt bundles preserve the
+    /// original `internal_hash` for unknown types instead of panicking.
+    pub fn set_resources_with_fallback(
+        &mut self,
+        resources: StaticMap<ResourceId, ResourceEntry>,
+        type_registry: &TypeRegistry,
+        fallback: &StaticMap<Hash32, ResourceBundleEntry>,
+    ) {
+        self.resources = resources;
+        self.resource_locations[0].count = self.resources.len();
+        self.rebuild_resource_bundles(type_registry, Some(fallback));
     }
 
     pub fn set_resource_chunks(
@@ -176,7 +196,11 @@ impl KFCFile {
         self.version = version;
     }
 
-    fn rebuild_resource_bundles(&mut self, type_registry: &TypeRegistry) {
+    fn rebuild_resource_bundles(
+        &mut self,
+        type_registry: &TypeRegistry,
+        fallback: Option<&StaticMap<Hash32, ResourceBundleEntry>>,
+    ) {
         let mut type_hashes = self
             .resources
             .keys()
@@ -185,14 +209,28 @@ impl KFCFile {
             .collect::<HashSet<_>>()
             .into_iter()
             .map(|hash| {
+                let internal_hash = type_registry
+                    .get_by_hash(LookupKey::Qualified(hash))
+                    .map(|t| t.internal_hash)
+                    .or_else(|| {
+                        fallback.and_then(|b| b.get(&hash).map(|e| e.internal_hash))
+                    })
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "type {:#010X} not found in type registry{}",
+                            hash,
+                            if fallback.is_some() {
+                                " nor in fallback bundles"
+                            } else {
+                                ""
+                            }
+                        )
+                    });
+
                 (
                     hash,
                     ResourceBundleEntry {
-                        // TODO: Remove unwrap
-                        internal_hash: type_registry
-                            .get_by_hash(LookupKey::Qualified(hash))
-                            .unwrap()
-                            .internal_hash,
+                        internal_hash,
                         ..Default::default()
                     },
                 )
