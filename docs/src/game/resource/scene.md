@@ -78,11 +78,11 @@ game.assets.get_resources_by_type("keen::MapMarkerRegistryResource")
 |----------|------|-------------|
 | `typeName` | `ObjectReference<keen.LocaTag>` | Display name (access `.keenglish` for text) |
 | `markerId` | `keen.HashKey32` | Unique identifier |
-| **`sortingCategory`** | `keen.MarkerTypeSorting` | **Group**: `"None"`, `"FlameRelated"`, `"Dungeons"`, `"Locations"`, `"CustomMarker"` |
+| `sortingCategory` | `keen.MarkerTypeSorting` | **Group**: `"None"`, `"FlameRelated"`, `"Dungeons"`, `"Locations"`, `"CustomMarker"` |
 | `sortingWeight` | `u8` | Sort priority |
 | `isHighlightable` | `bool` | Can be highlighted |
 | `canBeFiltered` | `bool` | Can be filtered in UI |
-| **`isFastTravelDestination`** | `bool` | **Key property for fast travel** |
+| `isFastTravelDestination` | `bool` | Key property for fast travel |
 | `isCustomMarkerType` | `bool` | Is player-placed marker |
 | `icon` / `mutedIcon` | `keen.UiTexture` | Icon textures |
 | `showLabel` / `showRange` | `bool` | UI display options |
