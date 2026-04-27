@@ -136,8 +136,16 @@ fn unpack(
         fatal!("Game directory does not exist: {}", game_dir.display());
     }
 
-    if output_dir.map(|x| !x.exists()).unwrap_or(false) {
-        fatal!("Output directory does not exist: {}", output_dir.unwrap().display());
+    if let Some(dir) = output_dir {
+        if dir.exists() && !dir.is_dir() {
+            fatal!("Output path exists but is not a directory: {}", dir.display());
+        }
+        if !dir.exists() {
+            if let Err(e) = std::fs::create_dir_all(dir) {
+                fatal!("Failed to create output directory {}: {}", dir.display(), e);
+            }
+            info!("Created output directory: {}", dir.display());
+        }
     }
 
     let file_name = get_file_name(game_dir, file_name)?;
@@ -1223,6 +1231,8 @@ fn assemble_impact(
     let output_file = output_file.unwrap_or(input_file)
         .with_extension("json");
 
+    ensure_parent_dir(&output_file)?;
+
     let writer = match File::create(&output_file) {
         Ok(file) => BufWriter::new(file),
         Err(e) => fatal!("Failed to create output file: {}", e)
@@ -1249,6 +1259,10 @@ fn disassemble_impact(
     let impact_file = output_file.with_file_name(format!("{}.impact", file_name));
     let shutdown_file = output_file.with_file_name(format!("{}.shutdown.impact", file_name));
     let data_file = output_file.with_file_name(format!("{}.data.json", file_name));
+
+    ensure_parent_dir(&impact_file)?;
+    ensure_parent_dir(&shutdown_file)?;
+    ensure_parent_dir(&data_file)?;
 
     // read program
 
@@ -1368,6 +1382,20 @@ fn get_file_opt(
     let file = game_dir.join(format!("{}.{}", file_name, extension));
 
     Ok(file)
+}
+
+/// Ensure the parent directory of `path` exists, creating it (and any missing
+/// parents) on demand. No-op if `path` has no parent or the parent already exists.
+fn ensure_parent_dir(path: &Path) -> Result<(), Error> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                fatal!("Failed to create directory {}: {}", parent.display(), e);
+            }
+            info!("Created directory: {}", parent.display());
+        }
+    }
+    Ok(())
 }
 
 fn get_file_name(
