@@ -73,11 +73,49 @@ fn check_game_directory(
     Ok(())
 }
 
+/// Resolve the base file name (without extension) of the Enshrouded game files.
+///
+/// If the user passed `--file-name`, that value is used as-is. Otherwise we
+/// probe the game directory for `enshrouded.kfc/exe` and `enshrouded_server.kfc/exe`,
+/// falling back to the first `.kfc` or `.exe` we find. As a last resort we
+/// return `"enshrouded"` so the existing error path can report the issue.
+fn resolve_file_name(
+    game_directory: &Path,
+    file_name: Option<String>,
+) -> String {
+    if let Some(name) = file_name {
+        return name;
+    }
+
+    for candidate in ["enshrouded", "enshrouded_server"] {
+        if game_directory.join(candidate).with_extension("kfc").exists()
+            || game_directory.join(candidate).with_extension("exe").exists()
+        {
+            return candidate.to_string();
+        }
+    }
+
+    if let Ok(entries) = std::fs::read_dir(game_directory) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(ext) = path.extension() {
+                if ext == "kfc" || ext == "exe" {
+                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                        return stem.to_string();
+                    }
+                }
+            }
+        }
+    }
+
+    "enshrouded".to_string()
+}
+
 fn create(
     game_directory: PathBuf,
     file_name: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let file_name = file_name.unwrap_or_else(|| "enshrouded".to_string());
+    let file_name = resolve_file_name(&game_directory, file_name);
 
     check_game_directory(&game_directory, &file_name)?;
 
@@ -238,7 +276,7 @@ fn run(
         Some(dir) => dir,
         None => game_directory.join("export"),
     };
-    let file_name = file_name.unwrap_or_else(|| "enshrouded".to_string());
+    let file_name = resolve_file_name(&game_directory, file_name);
 
     check_game_directory(&game_directory, &file_name)?;
 
@@ -302,7 +340,7 @@ fn restore(
     game_directory: PathBuf,
     file_name: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let file_name = file_name.unwrap_or_else(|| "enshrouded".to_string());
+    let file_name = resolve_file_name(&game_directory, file_name);
 
     check_game_directory(&game_directory, &file_name)?;
 
