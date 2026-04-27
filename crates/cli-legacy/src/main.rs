@@ -253,6 +253,8 @@ fn unpack_files(
     let total = guids.len() as u32;
     let pending_guids = Mutex::new(guids.into_iter().collect::<Vec<_>>());
     let failed_unpacks = AtomicU32::new(0);
+    let unknown_unpacks = AtomicU32::new(0);
+    let warned_unknown_types = Mutex::new(HashSet::<u32>::new());
     let start = std::time::Instant::now();
     let names = Mutex::new(HashSet::new());
 
@@ -261,6 +263,8 @@ fn unpack_files(
 
         for i in 0..thread_count {
             let failed_unpacks = &failed_unpacks;
+            let unknown_unpacks = &unknown_unpacks;
+            let warned_unknown_types = &warned_unknown_types;
             let pending_guids = &pending_guids;
             let output_dir = &output_dir;
             let pb = &pb;
@@ -291,6 +295,44 @@ fn unpack_files(
                     };
 
                     let result: anyhow::Result<()> = (|| {
+                        // If the type isn't in the registry, dump raw bytes instead of failing.
+                        if type_registry.get_by_hash(LookupKey::Qualified(guid.type_hash())).is_none() {
+                            buf.clear();
+                            if !reader.read_resource_into(guid, &mut buf)? {
+                                pb.suspend(|| {
+                                    warn!("Skipping descriptor (not found): {}", guid.to_qualified_string());
+                                });
+                                return Ok(());
+                            }
+
+                            let type_hash = guid.type_hash();
+                            let parent = output_dir
+                                .join("_unknown")
+                                .join(format!("{:08x}", type_hash));
+
+                            if !parent.exists() {
+                                std::fs::create_dir_all(&parent)?;
+                            }
+
+                            let path = parent.join(format!("{}.bin", guid.to_qualified_string()));
+                            std::fs::write(&path, &buf)?;
+
+                            unknown_unpacks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+                            let mut warned = warned_unknown_types.lock().unwrap();
+                            if warned.insert(type_hash) {
+                                pb.suspend(|| {
+                                    warn!(
+                                        "Unknown type 0x{:08X} not found in registry; dumping raw bytes to {}",
+                                        type_hash,
+                                        parent.display()
+                                    );
+                                });
+                            }
+
+                            return Ok(());
+                        }
+
                         buf.clear();
                         let descriptor = match crate::util::read_descriptor_into(
                             &mut reader,
@@ -372,9 +414,17 @@ fn unpack_files(
     pb.finish_and_clear();
 
     let failed_unpacks = failed_unpacks.load(std::sync::atomic::Ordering::Relaxed);
+    let unknown_unpacks = unknown_unpacks.load(std::sync::atomic::Ordering::Relaxed);
     let end = std::time::Instant::now();
 
-    info!("Unpacked a total of {}/{} descriptors in {:?}", total - failed_unpacks, total, end - start);
+    info!(
+        "Unpacked a total of {}/{} descriptors in {:?} ({} raw, {} failed)",
+        total - failed_unpacks - unknown_unpacks,
+        total,
+        end - start,
+        unknown_unpacks,
+        failed_unpacks,
+    );
 
     Ok(())
 }

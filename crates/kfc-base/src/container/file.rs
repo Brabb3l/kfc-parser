@@ -139,10 +139,11 @@ impl KFCFile {
         &mut self,
         resources: StaticMap<ResourceId, ResourceEntry>,
         type_registry: &TypeRegistry,
+        internal_hash_fallback: Option<&HashMap<Hash32, Hash32>>,
     ) -> Result<(), KFCWriteError> {
         self.resources = resources;
         self.resource_locations[0].count = self.resources.len();
-        self.rebuild_resource_bundles(type_registry)
+        self.rebuild_resource_bundles(type_registry, internal_hash_fallback)
     }
 
     pub fn set_resource_chunks(
@@ -176,7 +177,11 @@ impl KFCFile {
         self.version = version;
     }
 
-    fn rebuild_resource_bundles(&mut self, type_registry: &TypeRegistry) -> Result<(), KFCWriteError> {
+    fn rebuild_resource_bundles(
+        &mut self,
+        type_registry: &TypeRegistry,
+        internal_hash_fallback: Option<&HashMap<Hash32, Hash32>>,
+    ) -> Result<(), KFCWriteError> {
         let mut type_hashes = self
             .resources
             .keys()
@@ -185,10 +190,12 @@ impl KFCFile {
             .collect::<HashSet<_>>()
             .into_iter()
             .map(|hash| {
-                let internal_hash = type_registry
-                    .get_by_hash(LookupKey::Qualified(hash))
-                    .ok_or(KFCWriteError::UnknownTypeHash(hash))?
-                    .internal_hash;
+                let internal_hash = match type_registry.get_by_hash(LookupKey::Qualified(hash)) {
+                    Some(metadata) => metadata.internal_hash,
+                    None => internal_hash_fallback
+                        .and_then(|map| map.get(&hash).copied())
+                        .ok_or(KFCWriteError::UnknownTypeHash(hash))?,
+                };
 
                 Ok((
                     hash,
