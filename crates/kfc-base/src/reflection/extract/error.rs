@@ -28,4 +28,6 @@ pub enum ReflectionParseError {
     MissingRDataSection,
     #[error("Malformed pattern")]
     MalformedPattern,
+    #[error("Unknown primitive type 0x{value:X} for type `{name}`")]
+    UnknownPrimitiveType { value: u8, name: String },
 }
