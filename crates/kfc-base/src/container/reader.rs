@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, collections::HashMap, fs::File, io::{BufReader, Read, Seek, SeekFrom, Take}, path::{Path, PathBuf}};
+use std::{borrow::Borrow, collections::{HashMap, VecDeque}, fs::File, io::{BufReader, Read, Seek, SeekFrom, Take}, path::{Path, PathBuf}};
 
 use crate::{container::KFCReadError, guid::{ContentHash, ResourceId}};
 
@@ -8,6 +8,57 @@ use super::{header::ResourceEntry, KFCFile};
 /// truncated to their lower 24 bits.
 const RESOURCE_SIZE_MODULUS: u64 = 0x1000000;
 const RESOURCE_ALIGNMENT: u64 = 16;
+// Bound retained decompressed data per cursor. A single larger chunk is kept alone.
+const RESOURCE_CHUNK_CACHE_SIZE: usize = 32 * 1024 * 1024;
+
+struct ResourceChunkCache {
+    chunks: HashMap<usize, Vec<u8>>,
+    order: VecDeque<usize>,
+    size: usize,
+    max_size: usize,
+}
+
+impl ResourceChunkCache {
+    fn new(max_size: usize) -> Self {
+        Self {
+            chunks: HashMap::new(),
+            order: VecDeque::new(),
+            size: 0,
+            max_size,
+        }
+    }
+
+    fn get(&mut self, index: usize) -> Option<&[u8]> {
+        if !self.chunks.contains_key(&index) {
+            return None;
+        }
+
+        self.order.retain(|cached_index| *cached_index != index);
+        self.order.push_back(index);
+        self.chunks.get(&index).map(Vec::as_slice)
+    }
+
+    fn insert(&mut self, index: usize, data: Vec<u8>) {
+        if let Some(old_data) = self.chunks.remove(&index) {
+            self.size -= old_data.capacity();
+            self.order.retain(|cached_index| *cached_index != index);
+        }
+
+        while self.size.saturating_add(data.capacity()) > self.max_size {
+            let Some(oldest_index) = self.order.pop_front() else {
+                break;
+            };
+
+            if let Some(old_data) = self.chunks.remove(&oldest_index) {
+                self.size -= old_data.capacity();
+            }
+        }
+
+        self.size = self.size.saturating_add(data.capacity());
+        self.order.push_back(index);
+        self.chunks.insert(index, data);
+    }
+}
 
 pub struct KFCReader {
     file: KFCFile,
@@ -129,7 +180,7 @@ pub struct KFCCursor<R> {
     reader: BufReader<File>,
     container_readers: Vec<Option<BufReader<File>>>,
 
-    chunk_cache: HashMap<usize, Vec<u8>>,
+    chunk_cache: ResourceChunkCache,
     buffer: Vec<u8>,
 }
 
@@ -149,7 +200,7 @@ where
             reader,
             container_readers: Vec::new(),
 
-            chunk_cache: HashMap::new(),
+            chunk_cache: ResourceChunkCache::new(RESOURCE_CHUNK_CACHE_SIZE),
             buffer: Vec::new(),
         })
     }
@@ -277,36 +328,35 @@ where
         index: usize
     ) -> std::io::Result<&[u8]> {
         self.decompress_chunk_impl(index)?;
-        Ok(self.chunk_cache.get(&index).unwrap())
+        Ok(self.chunk_cache.get(index).unwrap())
     }
 
     fn decompress_chunk_impl(
         &mut self,
         index: usize
     ) -> std::io::Result<()> {
-        match self.chunk_cache.get(&index) {
-            Some(_) => Ok(()),
-            None => {
-                let kfc_reader = self.kfc_reader.borrow();
-                let chunk = &kfc_reader.file.resource_chunks()[index];
-
-                self.buffer.clear();
-                self.buffer.resize(chunk.compressed_size as usize, 0);
-
-                self.reader.seek(SeekFrom::Start(chunk.offset))?;
-                self.reader.read_exact(&mut self.buffer[..chunk.compressed_size as usize])?;
-
-                let mut decompressed_data = Vec::with_capacity(chunk.uncompressed_size as usize);
-                zstd::stream::copy_decode(
-                    &mut &self.buffer[..],
-                    &mut decompressed_data
-                )?;
-
-                self.chunk_cache.insert(index, decompressed_data);
-
-                Ok(())
-            }
+        if self.chunk_cache.get(index).is_some() {
+            return Ok(());
         }
+
+        let kfc_reader = self.kfc_reader.borrow();
+        let chunk = &kfc_reader.file.resource_chunks()[index];
+
+        self.buffer.clear();
+        self.buffer.resize(chunk.compressed_size as usize, 0);
+
+        self.reader.seek(SeekFrom::Start(chunk.offset))?;
+        self.reader.read_exact(&mut self.buffer[..chunk.compressed_size as usize])?;
+
+        let mut decompressed_data = Vec::with_capacity(chunk.uncompressed_size as usize);
+        zstd::stream::copy_decode(
+            &mut &self.buffer[..],
+            &mut decompressed_data
+        )?;
+
+        self.chunk_cache.insert(index, decompressed_data);
+
+        Ok(())
     }
 
     pub fn open_content(
@@ -477,5 +527,30 @@ mod tests {
         assert_eq!(actual_resource_size(&bounds, &entry(32 + 0x2000000 + 16, 100)), 100);
         // offset not in bounds and past the end
         assert_eq!(actual_resource_size(&bounds, &entry(0x4000000, 8)), 8);
+    }
+
+    #[test]
+    fn test_resource_chunk_cache_evicts_least_recently_used_chunks() {
+        let mut cache = ResourceChunkCache::new(7);
+        cache.insert(0, vec![0; 4]);
+        cache.insert(1, vec![1; 2]);
+
+        assert!(cache.get(0).is_some());
+        cache.insert(2, vec![2; 3]);
+
+        assert!(cache.get(0).is_some());
+        assert!(cache.get(1).is_none());
+        assert!(cache.get(2).is_some());
+        assert!(cache.size <= cache.max_size);
+    }
+
+    #[test]
+    fn test_resource_chunk_cache_keeps_a_single_oversized_chunk() {
+        let mut cache = ResourceChunkCache::new(4);
+        cache.insert(0, vec![0; 2]);
+        cache.insert(1, vec![1; 6]);
+
+        assert!(cache.get(0).is_none());
+        assert_eq!(cache.get(1).map(<[u8]>::len), Some(6));
     }
 }
