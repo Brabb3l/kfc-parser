@@ -78,10 +78,12 @@ fn load_mods(config: Config) -> Result<(), ()> {
         }
     };
 
+    let file_name = get_file_name(&current_dir)?;
+
     let result = lua::run(
         &env,
         RunArgs {
-            file_name: get_file_name(&current_dir)?,
+            file_name: file_name.clone(),
             options: RunOptions {
                 patch: true,
                 export: config.use_export_flag,
@@ -99,6 +101,16 @@ fn load_mods(config: Config) -> Result<(), ()> {
                 error = %e,
                 "Error running mod loader"
             );
+
+            // A failed run may have overwritten data that the currently
+            // patched KFC file still references, so restore the original
+            // KFC file to make sure the game starts with consistent data.
+            if lua::restore(&current_dir, &file_name) {
+                warn!("Restored the original game data");
+            } else {
+                warn!("Could not restore the original game data");
+            }
+
             return Err(());
         }
     };
