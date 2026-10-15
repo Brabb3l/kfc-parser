@@ -48,13 +48,13 @@ fn test_validate_kfc() -> Result<(), Box<dyn std::error::Error>> {
         assert!(exists, "Resource {guid} not found in KFC file");
 
         // check the size
-        let entry = kfc_file.resources().get(guid)
+        let size = reader.resource_size(guid)
             .expect("Resource entry not found"); // checked above
 
         assert_eq!(
             buf.len(),
-            entry.size as usize,
-            "Resource {} has size {}, but expected {}", guid, buf.len(), entry.size
+            size as usize,
+            "Resource {} has size {}, but expected {}", guid, buf.len(), size
         );
     }
 
