@@ -58,23 +58,25 @@ impl AppState {
 
         let options = args.options;
         let export_dir = options.export_dir
-            .map(|d| d.canonicalize())
-            .transpose()
-            .map_err(|e| {
-                warn!(
-                    error = %e,
-                    "Failed to canonicalize export directory, using default instead"
-                );
-            })?
-            .map(|d| {
-                PathBuf::from_path_buf(d)
+            .and_then(|d| {
+                d.canonicalize()
+                    .map_err(|e| {
+                        warn!(
+                            error = %e,
+                            "Failed to canonicalize export directory, using default instead"
+                        );
+                    })
+                    .ok()
             })
-            .transpose()
-            .map_err(|_| {
-                warn!(
-                    "Export directory is not valid UTF-8, using default instead"
-                );
-            })?
+            .and_then(|d| {
+                PathBuf::from_path_buf(d)
+                    .map_err(|_| {
+                        warn!(
+                            "Export directory is not valid UTF-8, using default instead"
+                        );
+                    })
+                    .ok()
+            })
             .unwrap_or_else(|| env.game_dir().join("export"));
 
         let skip_cache = options.skip_cache;
