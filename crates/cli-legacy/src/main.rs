@@ -261,6 +261,8 @@ fn unpack_files(
     let total = guids.len() as u32;
     let pending_guids = Mutex::new(guids.into_iter().collect::<Vec<_>>());
     let failed_unpacks = AtomicU32::new(0);
+    let processed_unpacks = AtomicU32::new(0);
+    let failed_workers = AtomicU32::new(0);
     let unknown_unpacks = AtomicU32::new(0);
     let warned_unknown_types = Mutex::new(HashSet::<u32>::new());
     let start = std::time::Instant::now();
@@ -271,6 +273,8 @@ fn unpack_files(
 
         for i in 0..thread_count {
             let failed_unpacks = &failed_unpacks;
+            let processed_unpacks = &processed_unpacks;
+            let failed_workers = &failed_workers;
             let unknown_unpacks = &unknown_unpacks;
             let warned_unknown_types = &warned_unknown_types;
             let pending_guids = &pending_guids;
@@ -283,6 +287,7 @@ fn unpack_files(
                 let mut reader = match kfc_reader.new_cursor() {
                     Ok(file) => file,
                     Err(e) => {
+                        failed_workers.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         pb.suspend(|| {
                             error!("Failed to open {}: {}", kfc_reader.kfc_path().display(), e);
                             error!("Worker #{} has been suspended", i);
@@ -307,10 +312,7 @@ fn unpack_files(
                         if type_registry.get_by_hash(LookupKey::Qualified(guid.type_hash())).is_none() {
                             buf.clear();
                             if !reader.read_resource_into(guid, &mut buf)? {
-                                pb.suspend(|| {
-                                    warn!("Skipping descriptor (not found): {}", guid.to_qualified_string());
-                                });
-                                return Ok(());
+                                anyhow::bail!("Resource not found");
                             }
 
                             let type_hash = guid.type_hash();
@@ -349,12 +351,7 @@ fn unpack_files(
                             &mut buf
                         )? {
                             Some(d) => d,
-                            None => {
-                                pb.suspend(|| {
-                                    warn!("Skipping descriptor (not found): {}", guid.to_qualified_string());
-                                });
-                                return Ok(());
-                            }
+                            None => anyhow::bail!("Resource not found"),
                         };
 
                         let r#type = type_registry.get_by_hash(LookupKey::Qualified(guid.type_hash()))
@@ -381,15 +378,8 @@ fn unpack_files(
                         drop(file_names);
 
                         let path = parent.join(&file_name);
-                        let file = match File::create(&path) {
-                            Ok(file) => file,
-                            Err(e) => {
-                                pb.suspend(|| {
-                                    error!("Failed to create file with name `{}`: {}", file_name, e);
-                                });
-                                return Ok(());
-                            }
-                        };
+                        let file = File::create(&path)
+                            .map_err(|e| anyhow::anyhow!("Failed to create `{}`: {e}", path.display()))?;
                         let writer = BufWriter::new(file);
                         serde_json::to_writer_pretty(writer, &descriptor)?;
 
@@ -407,6 +397,7 @@ fn unpack_files(
                         }
                     }
 
+                    processed_unpacks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     pb.inc(1);
                 }
             });
@@ -422,17 +413,29 @@ fn unpack_files(
     pb.finish_and_clear();
 
     let failed_unpacks = failed_unpacks.load(std::sync::atomic::Ordering::Relaxed);
+    let processed_unpacks = processed_unpacks.load(std::sync::atomic::Ordering::Relaxed);
+    let failed_workers = failed_workers.load(std::sync::atomic::Ordering::Relaxed);
     let unknown_unpacks = unknown_unpacks.load(std::sync::atomic::Ordering::Relaxed);
+    let unprocessed_unpacks = total.saturating_sub(processed_unpacks);
     let end = std::time::Instant::now();
 
     info!(
         "Unpacked a total of {}/{} descriptors in {:?} ({} raw, {} failed)",
-        total - failed_unpacks - unknown_unpacks,
+        total.saturating_sub(failed_unpacks + unknown_unpacks + unprocessed_unpacks),
         total,
         end - start,
         unknown_unpacks,
-        failed_unpacks,
+        failed_unpacks + unprocessed_unpacks,
     );
+
+    if failed_unpacks > 0 || unprocessed_unpacks > 0 {
+        fatal!(
+            "Unpacking failed: {} resource errors, {} resources not processed, and {} worker errors",
+            failed_unpacks,
+            unprocessed_unpacks,
+            failed_workers
+        );
+    }
 
     Ok(())
 }
@@ -444,7 +447,11 @@ fn unpack_stdout(
     thread_count: u8
 ) -> Result<(), Error> {
     let pending_guids = Mutex::new(guids.into_iter().collect::<Vec<_>>());
+    let total = pending_guids.lock().unwrap().len() as u32;
     let (tx, rx) = std::sync::mpsc::sync_channel(1024);
+    let processed_guids = AtomicU32::new(0);
+    let failed_resources = AtomicU32::new(0);
+    let failed_workers = AtomicU32::new(0);
 
     std::thread::scope(|s| {
         let mut handles = Vec::new();
@@ -452,12 +459,16 @@ fn unpack_stdout(
         for _ in 0..thread_count {
             let tx = tx.clone();
             let pending_guids = &pending_guids;
+            let processed_guids = &processed_guids;
+            let failed_resources = &failed_resources;
+            let failed_workers = &failed_workers;
 
             let handle = s.spawn(move || {
                 let mut buf = Vec::with_capacity(1024);
                 let mut reader = match kfc_reader.new_cursor() {
                     Ok(file) => file,
                     Err(e) => {
+                        failed_workers.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let error = serde_json::json!({
                             "$error": "KFCReaderError",
                             "$message": format!("Failed to open {}: {}", kfc_reader.kfc_path().display(), e),
@@ -490,6 +501,7 @@ fn unpack_stdout(
                         Ok(Some(d)) => match serde_json::to_string(&d) {
                             Ok(data) => data,
                             Err(e) => {
+                                failed_resources.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                 serde_json::json!({
                                     "$guid": guid.to_qualified_string(),
                                     "$error": "SerializationError",
@@ -497,19 +509,26 @@ fn unpack_stdout(
                                 }).to_string()
                             }
                         },
-                        Ok(None) => serde_json::json!({
-                            "$guid": guid.to_qualified_string(),
-                            "$error": "NotFound",
-                        }).to_string(),
-                        Err(e) => serde_json::json!({
-                            "$guid": guid.to_qualified_string(),
-                            "$error": "ReadError",
-                            "$message": e.to_string(),
-                        }).to_string()
+                        Ok(None) => {
+                            failed_resources.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            serde_json::json!({
+                                "$guid": guid.to_qualified_string(),
+                                "$error": "NotFound",
+                            }).to_string()
+                        }
+                        Err(e) => {
+                            failed_resources.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            serde_json::json!({
+                                "$guid": guid.to_qualified_string(),
+                                "$error": "ReadError",
+                                "$message": e.to_string(),
+                            }).to_string()
+                        }
                     };
                     let result = descriptor.to_string();
 
                     tx.send(result).unwrap();
+                    processed_guids.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
             });
 
@@ -546,7 +565,22 @@ fn unpack_stdout(
         }
 
         Ok(())
-    })
+    })?;
+
+    let processed_guids = processed_guids.load(std::sync::atomic::Ordering::Relaxed);
+    let failed_resources = failed_resources.load(std::sync::atomic::Ordering::Relaxed);
+    let failed_workers = failed_workers.load(std::sync::atomic::Ordering::Relaxed);
+    let unprocessed_guids = total.saturating_sub(processed_guids);
+    if failed_resources > 0 || unprocessed_guids > 0 {
+        fatal!(
+            "Unpacking to stdout failed: {} resource errors, {} resources not processed, and {} worker errors",
+            failed_resources,
+            unprocessed_guids,
+            failed_workers
+        );
+    }
+
+    Ok(())
 }
 
 fn validate_backup(
