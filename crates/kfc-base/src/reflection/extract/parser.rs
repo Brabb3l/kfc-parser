@@ -62,9 +62,9 @@ pub fn extract_reflection_data<P: AsRef<Path>>(
     let mut reference_table = HashMap::new();
     let mut reference_table_cursor = table_cursor.clone();
 
-    for _ in 0..table_count {
+    for i in 0..table_count {
         let offset = reference_table_cursor.read_u64()?;
-        reference_table.insert(offset, reference_table.len());
+        reference_table.entry(offset).or_insert(i as usize);
     }
 
     let mut table = Vec::with_capacity(table_count as usize);

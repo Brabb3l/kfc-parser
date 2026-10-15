@@ -28,4 +28,17 @@ pub enum ReflectionParseError {
     MissingRDataSection,
     #[error("Malformed pattern")]
     MalformedPattern,
+
+    #[error("Duplicate impact hash: {hash:#010X}, previous: {previous}, current: {current}")]
+    DuplicateImpactHash {
+        hash: u32,
+        previous: String,
+        current: String,
+    },
+    #[error("Duplicate qualified hash: {hash:#010X}, previous: {previous}, current: {current}")]
+    DuplicateQualifiedHash {
+        hash: u32,
+        previous: String,
+        current: String,
+    },
 }
