@@ -16,6 +16,7 @@ use super::{KFCReadError, KFCWriteError, StaticMap, StaticMapBucket, header::*};
 
 #[derive(Debug, Clone)]
 pub struct KFCFile {
+    format: KFCFormat,
     version: String,
 
     containers: Vec<ContainerInfo>,
@@ -35,6 +36,7 @@ impl Default for KFCFile {
             resource_locations: vec![ResourceLocation::default()],
             resource_chunks: Vec::default(),
 
+            format: KFCFormat::default(),
             version: String::default(),
             containers: Vec::default(),
 
@@ -94,6 +96,11 @@ impl KFCFile {
     #[inline]
     pub fn contents(&self) -> &StaticMap<ContentHash, ContentEntry> {
         &self.contents
+    }
+
+    #[inline]
+    pub fn format(&self) -> KFCFormat {
+        self.format
     }
 
     #[inline]
@@ -171,6 +178,10 @@ impl KFCFile {
         containers: Vec<ContainerInfo>
     ) {
         self.containers = containers;
+    }
+
+    pub fn set_format(&mut self, format: KFCFormat) {
+        self.format = format;
     }
 
     pub fn set_game_version(&mut self, version: String) {
@@ -319,6 +330,7 @@ impl KFCFile {
                 .collect::<Result<Vec<_>, _>>()?;
 
             Ok(Self {
+                format: header.format,
                 version,
                 containers,
 
@@ -333,6 +345,7 @@ impl KFCFile {
             })
         } else {
             Ok(Self {
+                format: header.format,
                 version,
                 containers: Vec::new(),
                 resource_locations,
@@ -443,6 +456,7 @@ impl KFCFile {
 
         // KFCHeader
         let header = KFCHeader {
+            format: self.format,
             unused0: Default::default(),
             unused1: Default::default(),
 

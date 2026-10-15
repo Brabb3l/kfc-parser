@@ -1,8 +1,8 @@
-use std::{borrow::Borrow, collections::HashMap, fs::File, io::{BufWriter, Cursor, Seek, SeekFrom, Write}, path::{Path, PathBuf}};
+use std::{borrow::Borrow, collections::HashMap, fs::File, io::{BufReader, BufWriter, Cursor, Seek, SeekFrom, Write}, path::{Path, PathBuf}};
 
 use crate::{Hash32, container::header::ResourceChunkInfo, guid::{ContentHash, ResourceId}, io::{WriteExt, WriteSeekExt}, reflection::TypeRegistry};
 
-use super::{header::{ContentEntry, ContainerInfo, ResourceEntry}, KFCFile, KFCReadError, KFCWriteError, StaticMapBuilder};
+use super::{header::{ContentEntry, ContainerInfo, KFCHeader, ResourceEntry}, KFCFile, KFCFormat, KFCReadError, KFCWriteError, StaticMapBuilder};
 
 const RESOURCE_ALIGNMENT: u64 = 16;
 const CONTENT_ALIGNMENT: u64 = 4096;
@@ -25,6 +25,7 @@ pub struct KFCWriter<F, T> {
 
     container_writers: Vec<ContainerWriter>,
 
+    format: KFCFormat,
     game_version: String,
     resources: StaticMapBuilder<ResourceId, ResourceEntry>,
     contents: StaticMapBuilder<ContentHash, ContentEntry>,
@@ -107,6 +108,14 @@ where
         ));
         let file = File::options().write(true).read(true).open(&kfc_path)?;
 
+        // keep the format of the existing file, fall back to the latest format
+        let format = KFCHeader::read(&mut BufReader::new(&file))
+            .map(|header| header.format)
+            .unwrap_or_default();
+
+        // reading the header moved the cursor, the header is written at the start
+        (&file).seek(SeekFrom::Start(0))?;
+
         let resources_path = path.as_ref().join(format!(
             "{}.{}",
             file_name.as_ref(),
@@ -131,6 +140,7 @@ where
 
             container_writers: Vec::new(),
 
+            format,
             game_version: game_version.as_ref().to_string(),
             resources: StaticMapBuilder::default(),
             contents: StaticMapBuilder::default(),
@@ -169,6 +179,7 @@ where
             options.kfc_extension
         ));
         let current_file = KFCFile::from_path(&kfc_path, true)?;
+        let format = current_file.format();
 
         let file = reference_file.borrow();
 
@@ -218,6 +229,7 @@ where
 
             container_writers: Vec::new(),
 
+            format,
             game_version: reference_file.borrow().game_version().to_string(),
             resources,
             contents,
@@ -412,6 +424,7 @@ where
         let mut file_writer = BufWriter::new(&mut self.file);
         let mut file = KFCFile::default();
 
+        file.set_format(self.format);
         file.set_game_version(self.game_version);
         file.set_resources(
             self.resources.build(),
