@@ -556,7 +556,12 @@ extern "system" fn DllMain(
             }
         }
         DLL_PROCESS_DETACH => {
-            init::deinit();
+            // A non-null lpReserved means the process is terminating. Other threads
+            // are already gone and thread-local storage (used by logging) may
+            // already be destroyed, so do not run any cleanup in that case.
+            if _reserved.is_null() {
+                init::deinit();
+            }
         }
         _ => {}
     }
