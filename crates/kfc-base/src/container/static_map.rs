@@ -38,6 +38,13 @@ impl<K: std::cmp::PartialEq + StaticHash, V> StaticMap<K, V> {
             return Err(StaticMapError::InvalidBucketSize(buckets.len()));
         }
 
+        for bucket in &buckets {
+            match bucket.index.checked_add(bucket.count) {
+                Some(end) if end <= keys.len() => {}
+                _ => return Err(StaticMapError::BucketOutOfRange(bucket.index, bucket.count, keys.len())),
+            }
+        }
+
         Ok(Self {
             keys,
             values,
@@ -46,6 +53,10 @@ impl<K: std::cmp::PartialEq + StaticHash, V> StaticMap<K, V> {
     }
 
     pub fn get(&self, key: &K) -> Option<&V> {
+        if self.buckets.is_empty() {
+            return None;
+        }
+
         let hash = key.static_hash();
         let bucket_index = hash as usize % self.buckets.len();
         let bucket = &self.buckets[bucket_index];
@@ -269,6 +280,46 @@ mod tests {
         assert_eq!(map.get(&2), Some(&"two"));
         assert_eq!(map.get(&3), Some(&"three"));
         assert_eq!(map.get(&4), None);
+    }
+
+    #[test]
+    fn test_static_map_empty() {
+        let map = StaticMap::<u32, &'static str>::default();
+
+        assert!(map.is_empty());
+        assert_eq!(map.get(&1), None);
+        assert!(!map.contains_key(&1));
+    }
+
+    #[test]
+    fn test_static_map_from_parts() {
+        let map = create_test_map();
+        let map = StaticMap::from_parts(
+            map.keys().to_vec(),
+            map.values().to_vec(),
+            map.buckets().to_vec(),
+        ).unwrap();
+
+        assert_eq!(map.get(&1), Some(&"one"));
+        assert_eq!(map.get(&2), Some(&"two"));
+        assert_eq!(map.get(&3), Some(&"three"));
+        assert_eq!(map.get(&4), None);
+    }
+
+    #[test]
+    fn test_static_map_from_parts_out_of_range() {
+        let buckets = vec![
+            StaticMapBucket { index: 1, count: 1 },
+            StaticMapBucket { index: 0, count: 0 },
+        ];
+        let result = StaticMap::from_parts(vec![1u32], vec!["one"], buckets);
+
+        assert!(matches!(result, Err(StaticMapError::BucketOutOfRange(1, 1, 1))));
+
+        let buckets = vec![StaticMapBucket { index: usize::MAX, count: 1 }];
+        let result = StaticMap::from_parts(vec![1u32], vec!["one"], buckets);
+
+        assert!(matches!(result, Err(StaticMapError::BucketOutOfRange(usize::MAX, 1, 1))));
     }
 
 }
