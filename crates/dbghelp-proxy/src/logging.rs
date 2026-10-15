@@ -4,6 +4,8 @@ use tracing::level_filters::LevelFilter;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
+use crate::log::warn;
+
 const ENV_LOG_FILE_FILTER: &str = "EML_LOG_FILE_FILTER";
 const ENV_LOG_FILE_ENABLED: &str = "EML_LOG_FILE_ENABLED";
 const ENV_LOG_FILE_PATH: &str = "EML_LOG_FILE_PATH";
@@ -19,6 +21,8 @@ pub fn setup() {
     let enabled_file = env_flag(ENV_LOG_FILE_ENABLED, true);
     let enabled_stdout = env_flag(ENV_LOG_STDOUT_ENABLED, true);
 
+    let mut file_error = None;
+
     let file_layer = if enabled_file {
         let path = env_string(ENV_LOG_FILE_PATH, DEFAULT_LOG_PATH);
         let max_log_files = env_usize(ENV_LOG_FILE_MAX, DEFAULT_MAX_LOG_FILES);
@@ -27,15 +31,23 @@ pub fn setup() {
             .rotation(Rotation::DAILY)
             .filename_suffix("eml.log")
             .max_log_files(max_log_files)
-            .build(path)
-            .expect("failed to create log appender");
+            .build(&path);
 
-        let file_layer = fmt::layer()
-            .json()
-            .with_writer(appender)
-            .with_filter(env_filter(ENV_LOG_FILE_FILTER));
+        match appender {
+            Ok(appender) => {
+                let file_layer = fmt::layer()
+                    .json()
+                    .with_writer(appender)
+                    .with_filter(env_filter(ENV_LOG_FILE_FILTER));
 
-        Some(file_layer)
+                Some(file_layer)
+            }
+            Err(e) => {
+                // logging is not set up yet, report it once the subscriber is installed
+                file_error = Some((path, e));
+                None
+            }
+        }
     } else {
         None
     };
@@ -53,10 +65,19 @@ pub fn setup() {
         None
     };
 
-    tracing_subscriber::registry()
+    // a global subscriber may already be installed, keep it in that case
+    let _ = tracing_subscriber::registry()
         .with(file_layer)
         .with(stdout_layer)
-        .init();
+        .try_init();
+
+    if let Some((path, e)) = file_error {
+        warn!(
+            error = %e,
+            path = %path,
+            "Failed to create log file appender, file logging is disabled"
+        );
+    }
 }
 
 fn env_filter(name: &str) -> EnvFilter {
