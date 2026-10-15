@@ -293,7 +293,10 @@ impl AppState {
         type_index: TypeIndex,
         lua: &mlua::Lua,
     ) -> mlua::Result<ResourceId> {
-        let r#type = self.type_registry.get(type_index).unwrap();
+        let r#type = self.type_registry.get(type_index)
+            .ok_or_else(|| LuaError::generic(format!(
+                "type with index {type_index} not found"
+            )))?;
         let resources = self.resources.borrow_mut();
         let mut guid: ResourceId;
 
@@ -340,7 +343,9 @@ impl AppState {
         if let hash_map::Entry::Vacant(e) = self.new_contents.borrow_mut().entry(guid) {
             self.writer.borrow_mut()
                 .as_mut()
-                .expect("KFCWriter no longer available")
+                .ok_or_else(|| LuaError::generic(
+                    "cannot create content: KFCWriter is no longer available"
+                ))?
                 .write_content(&guid, data)?;
 
             // TODO: attach a reader to the writer to avoid cloning
