@@ -187,17 +187,17 @@ pub fn validate_backup(
     kfc_path: &Path,
     kfc_path_bak: &Path
 ) -> bool {
-    let version_bak = match KFCFile::get_version_tag(kfc_path_bak) {
+    let file_bak = match KFCFile::from_path(kfc_path_bak, true) {
         Ok(file) => file,
         Err(_) => return false,
     };
 
-    let version = match KFCFile::get_version_tag(kfc_path) {
+    let file = match KFCFile::from_path(kfc_path, true) {
         Ok(file) => file,
         Err(_) => return false,
     };
 
-    version == version_bak
+    file.game_version() == file_bak.game_version() && file.format() == file_bak.format()
 }
 
 pub fn load_type_registry(
