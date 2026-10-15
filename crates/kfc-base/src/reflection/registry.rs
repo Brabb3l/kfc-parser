@@ -56,7 +56,7 @@ impl TypeRegistry {
         let mut registry = Self::default();
         let types = super::extract_reflection_data(path)?;
 
-        registry.extend(types);
+        registry.extend(types)?;
 
         Ok(registry)
     }
@@ -199,7 +199,7 @@ impl TypeRegistry {
     pub(super) fn extend(
         &mut self,
         types: Vec<TypeMetadata>
-    ) -> usize {
+    ) -> Result<usize, ReflectionParseError> {
         if self.types.is_empty() {
             self.types.reserve_exact(types.len());
             self.types_by_qualified_hash.reserve(types.len());
@@ -207,37 +207,130 @@ impl TypeRegistry {
 
         let len = types.len();
 
-        // TODO: handle duplicates properly
         // TODO: maybe add validation at some point
 
         for value in types {
-            if !value.flags.contains(TypeFlags::HAS_DS) {
-                if let Some(previous) = self.types_by_impact_hash.get(&value.impact_hash) {
-                    panic!(
-                        "Duplicate impact hash: {:#010X}, previous: {}, current: {}",
-                        value.impact_hash,
-                        self.get(*previous).unwrap().qualified_name,
-                        value.qualified_name
-                    );
-                }
+            let has_impact_hash = !value.flags.contains(TypeFlags::HAS_DS);
 
-                self.types_by_impact_hash.insert(value.impact_hash, value.index);
+            if has_impact_hash {
+                if let Some(previous) = self.types_by_impact_hash.get(&value.impact_hash) {
+                    return Err(ReflectionParseError::DuplicateImpactHash {
+                        hash: value.impact_hash,
+                        previous: self.type_name_at(*previous),
+                        current: value.qualified_name,
+                    });
+                }
             }
 
             if let Some(previous) = self.types_by_qualified_hash.get(&value.qualified_hash) {
-                panic!(
-                    "Duplicate qualified hash: {:#010X}, previous: {}, current: {}",
-                    value.qualified_hash,
-                    self.get(*previous).unwrap().qualified_name,
-                    value.qualified_name
-                );
+                return Err(ReflectionParseError::DuplicateQualifiedHash {
+                    hash: value.qualified_hash,
+                    previous: self.type_name_at(*previous),
+                    current: value.qualified_name,
+                });
+            }
+
+            if has_impact_hash {
+                self.types_by_impact_hash.insert(value.impact_hash, value.index);
             }
 
             self.types_by_qualified_hash.insert(value.qualified_hash, value.index);
             self.types.push(value);
         }
 
-        len
+        Ok(len)
+    }
+
+    fn type_name_at(&self, index: TypeIndex) -> String {
+        self.get(index)
+            .map(|r#type| r#type.qualified_name.clone())
+            .unwrap_or_else(|| format!("<index {index}>"))
+    }
+
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_type(
+        index: usize,
+        name: &str,
+        flags: TypeFlags,
+    ) -> TypeMetadata {
+        TypeMetadata {
+            index: TypeIndex(index),
+            name: name.to_string(),
+            impact_name: name.to_string(),
+            qualified_name: name.to_string(),
+            namespace: Vec::new(),
+            inner_type: None,
+            size: 0,
+            alignment: 0,
+            element_alignment: 0,
+            field_count: 0,
+            primitive_type: PrimitiveType::None,
+            flags,
+            name_hash: fnv(name),
+            impact_hash: fnv(name),
+            qualified_hash: fnv(name),
+            internal_hash: 0,
+            struct_fields: Default::default(),
+            enum_fields: Default::default(),
+            default_value: None,
+            attributes: Default::default(),
+        }
+    }
+
+    #[test]
+    fn test_extend() {
+        let mut registry = TypeRegistry::default();
+        let types = vec![
+            make_type(0, "A", TypeFlags::NONE),
+            make_type(1, "B", TypeFlags::HAS_DS),
+        ];
+
+        assert_eq!(registry.extend(types).unwrap(), 2);
+        assert_eq!(registry.len(), 2);
+        assert_eq!(registry.get_by_name(LookupKey::Qualified("A")).unwrap().index, TypeIndex(0));
+        assert_eq!(registry.get_by_name(LookupKey::Qualified("B")).unwrap().index, TypeIndex(1));
+        assert_eq!(registry.get_by_name(LookupKey::Impact("A")).unwrap().index, TypeIndex(0));
+        assert!(registry.get_by_name(LookupKey::Impact("B")).is_none());
+    }
+
+    #[test]
+    fn test_extend_duplicate_qualified_hash() {
+        let mut registry = TypeRegistry::default();
+        let types = vec![
+            make_type(0, "A", TypeFlags::HAS_DS),
+            make_type(1, "A", TypeFlags::HAS_DS),
+        ];
+
+        let err = registry.extend(types).unwrap_err();
+
+        assert!(matches!(
+            err,
+            ReflectionParseError::DuplicateQualifiedHash { hash, .. } if hash == fnv("A")
+        ));
+    }
+
+    #[test]
+    fn test_extend_duplicate_impact_hash() {
+        let mut registry = TypeRegistry::default();
+        let mut duplicate = make_type(1, "B", TypeFlags::NONE);
+        duplicate.impact_hash = fnv("A");
+
+        let types = vec![
+            make_type(0, "A", TypeFlags::NONE),
+            duplicate,
+        ];
+
+        let err = registry.extend(types).unwrap_err();
+
+        assert!(matches!(
+            err,
+            ReflectionParseError::DuplicateImpactHash { hash, .. } if hash == fnv("A")
+        ));
     }
 
 }
