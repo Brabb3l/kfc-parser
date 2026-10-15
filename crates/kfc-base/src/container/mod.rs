@@ -6,6 +6,7 @@ mod reader;
 mod writer;
 
 pub use file::*;
+pub use header::KFCFormat;
 pub use static_map::*;
 pub use error::*;
 pub use reader::*;

@@ -4,12 +4,42 @@ use crate::{io::{ReadExt, ReadSeekExt, WriteExt, WriteSeekExt}, Hash32};
 
 use super::{KFCReadError, KFCWriteError};
 
-const KFC_DIR_MAGIC: u32 = 0x3343464B; // KFC3
+const KFC3_DIR_MAGIC: u32 = 0x3343464B; // KFC3
+const KFC4_DIR_MAGIC: u32 = 0x3443464B; // KFC4
+
+/// The version of the KFC directory format, identified by the header magic.
+///
+/// KFC4 is used since Enshrouded 1.0 and has the same layout as KFC3.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum KFCFormat {
+    KFC3,
+    #[default]
+    KFC4,
+}
+
+impl KFCFormat {
+
+    pub fn from_magic(magic: u32) -> Option<Self> {
+        match magic {
+            KFC3_DIR_MAGIC => Some(Self::KFC3),
+            KFC4_DIR_MAGIC => Some(Self::KFC4),
+            _ => None,
+        }
+    }
+
+    pub fn magic(&self) -> u32 {
+        match self {
+            Self::KFC3 => KFC3_DIR_MAGIC,
+            Self::KFC4 => KFC4_DIR_MAGIC,
+        }
+    }
+
+}
 
 /// # Layout
 /// ```c
 /// struct KFCHeader {
-///     u32 magic; // KFC_DIR_MAGIC
+///     u32 magic; // KFC3 or KFC4, see KFCFormat
 ///     u32 size;
 ///     u32 unk0; // 12
 ///     u8 padding[4];
@@ -40,6 +70,7 @@ const KFC_DIR_MAGIC: u32 = 0x3343464B; // KFC3
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct KFCHeader {
+    pub format: KFCFormat,
     pub size: u64,
     // pub unk0: u32,
 
@@ -71,10 +102,8 @@ impl KFCHeader {
 
     pub fn read<R: Read + Seek>(reader: &mut R) -> Result<Self, KFCReadError> {
         let magic = reader.read_u32()?;
-
-        if magic != KFC_DIR_MAGIC {
-            return Err(KFCReadError::InvalidMagic(magic));
-        }
+        let format = KFCFormat::from_magic(magic)
+            .ok_or(KFCReadError::InvalidMagic(magic))?;
 
         let size = reader.read_u32()? as u64;
         let _unk0 = reader.read_u32()?;
@@ -105,6 +134,7 @@ impl KFCHeader {
         let resource_chunks = KFCLocation::read(reader)?;
 
         Ok(Self {
+            format,
             size,
 
             version,
@@ -137,7 +167,7 @@ impl KFCHeader {
             return Err(KFCWriteError::SizeTooLarge(self.size));
         }
 
-        writer.write_u32(KFC_DIR_MAGIC)?;
+        writer.write_u32(self.format.magic())?;
         writer.write_u32(self.size as u32)?;
         writer.write_u32(12)?;
         writer.padding(4)?;
@@ -478,4 +508,50 @@ impl ResourceChunkInfo {
         Ok(())
     }
 
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use super::*;
+
+    fn write_header(format: KFCFormat) -> Vec<u8> {
+        let header = KFCHeader {
+            format,
+            size: 256,
+            ..Default::default()
+        };
+
+        let mut cursor = Cursor::new(Vec::new());
+        header.write(&mut cursor).unwrap();
+        cursor.into_inner()
+    }
+
+    #[test]
+    fn test_header_format_round_trip() {
+        for format in [KFCFormat::KFC3, KFCFormat::KFC4] {
+            let data = write_header(format);
+            assert_eq!(&data[..4], &format.magic().to_le_bytes());
+
+            let header = KFCHeader::read(&mut Cursor::new(data)).unwrap();
+            assert_eq!(header.format, format);
+            assert_eq!(header.size, 256);
+        }
+    }
+
+    #[test]
+    fn test_header_magic() {
+        assert_eq!(&KFCFormat::KFC3.magic().to_le_bytes(), b"KFC3");
+        assert_eq!(&KFCFormat::KFC4.magic().to_le_bytes(), b"KFC4");
+    }
+
+    #[test]
+    fn test_header_invalid_magic() {
+        let mut data = write_header(KFCFormat::KFC4);
+        data[..4].copy_from_slice(b"KFC5");
+
+        let result = KFCHeader::read(&mut Cursor::new(data));
+        assert!(matches!(result, Err(KFCReadError::InvalidMagic(_))));
+    }
 }
