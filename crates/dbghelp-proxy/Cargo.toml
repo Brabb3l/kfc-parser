@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 mod-loader = { path = "../mod-loader", features = ["lua", "runtime"] }
+mod-loader-bridge = { path = "../mod-loader-bridge" }
 
 camino.workspace = true
 

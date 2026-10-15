@@ -8,7 +8,7 @@ use std::ffi::CString;
 use mod_loader::Config;
 use windows::{
     Win32::{
-        Foundation::{HINSTANCE, MAX_PATH, TRUE},
+        Foundation::{FALSE, HINSTANCE, MAX_PATH, TRUE},
         System::{
             Console::{AllocConsole, GetConsoleWindow},
             LibraryLoader::{GetProcAddress, LoadLibraryA},
@@ -537,26 +537,37 @@ extern "system" fn DllMain(
 
             match unsafe { init_procs() } {
                 Ok(()) => {
-                    let enable_console = std::env::var("EML_CONSOLE")
-                        .map(|s| matches!(s.to_lowercase().as_str(), "true" | "1" | "yes"))
-                        .unwrap_or(false);
+                    match mod_loader_bridge::try_start() {
+                        mod_loader_bridge::Handoff::Started => {}
+                        mod_loader_bridge::Handoff::EmlSelected => {
+                            let enable_console = std::env::var("EML_CONSOLE")
+                                .map(|s| matches!(s.to_lowercase().as_str(), "true" | "1" | "yes"))
+                                .unwrap_or(false);
+                            let config = Config::load("eml.json")
+                                .unwrap_or_default();
 
-                    let config = Config::load("eml.json")
-                        .unwrap_or_default();
+                            if enable_console || config.enable_console {
+                                crate::enable_console();
+                            }
 
-                    if enable_console || config.enable_console {
-                        crate::enable_console();
+                            init::init(config);
+                        }
+                        mod_loader_bridge::Handoff::Failed => return FALSE,
                     }
-
-                    init::init(config);
                 }
                 Err(e) => {
+                    if mod_loader_bridge::selected_backend() == mod_loader_bridge::Backend::ShroudForge {
+                        let message = format!("Failed to initialize dbghelp proxy: {e}");
+                        mod_loader_bridge::write_diagnostic('E', "native-proxy", &message);
+                    }
                     panic!("Failed to initialize dbghelp proxy: {e}");
                 }
             }
         }
         DLL_PROCESS_DETACH => {
-            init::deinit();
+            if mod_loader_bridge::selected_backend() == mod_loader_bridge::Backend::Eml {
+                init::deinit();
+            }
         }
         _ => {}
     }
@@ -641,7 +652,12 @@ unsafe fn init_procs() -> Result<(), String> {
                 M_PROCS[i] = addr as _;
             },
             None => {
-                println!("Warning: {} is missing in dbghelp.dll", NAMES[i].to_string_lossy());
+                let warning = format!("{} is missing in dbghelp.dll", NAMES[i].to_string_lossy());
+                if mod_loader_bridge::selected_backend() == mod_loader_bridge::Backend::Eml
+                    || !mod_loader_bridge::write_diagnostic('D', "native-proxy", &warning)
+                {
+                    println!("Warning: {warning}");
+                }
 
                 unsafe {
                     M_PROCS[i] = missing_proc as _;
