@@ -2,7 +2,7 @@ use std::{borrow::Borrow, collections::HashMap, fs::File, io::{BufWriter, Cursor
 
 use crate::{Hash32, container::header::ResourceChunkInfo, guid::{ContentHash, ResourceId}, io::{WriteExt, WriteSeekExt}, reflection::TypeRegistry};
 
-use super::{header::{ContentEntry, ContainerInfo, ResourceEntry}, KFCFile, KFCReadError, KFCWriteError, StaticMapBuilder};
+use super::{header::{ContentEntry, ContainerInfo, KfcFormat, ResourceEntry}, KFCFile, KFCReadError, KFCWriteError, StaticMapBuilder};
 
 const RESOURCE_ALIGNMENT: u64 = 16;
 const CONTENT_ALIGNMENT: u64 = 4096;
@@ -39,6 +39,8 @@ struct IncrementalData<F> {
 
 #[derive(Debug)]
 pub struct KFCWriteOptions {
+    /// The directory format to use for new KFC files.
+    pub kfc_format: KfcFormat,
     /// The extension to use for kfc files.
     pub kfc_extension: String,
     /// The extension to use for kfc resource files.
@@ -61,6 +63,7 @@ pub struct KFCWriteOptions {
 impl Default for KFCWriteOptions {
     fn default() -> Self {
         Self {
+            kfc_format: KfcFormat::default(),
             kfc_extension: "kfc".to_string(),
             resource_extension: "kfc_resources".to_string(),
             dat_extension: "dat".to_string(),
@@ -412,6 +415,11 @@ where
         let mut file_writer = BufWriter::new(&mut self.file);
         let mut file = KFCFile::default();
 
+        let format = self.incremental_data.as_ref()
+            .map(|data| data.reference_file.borrow().format())
+            .unwrap_or(self.options.kfc_format);
+
+        file.set_format(format);
         file.set_game_version(self.game_version);
         file.set_resources(
             self.resources.build(),

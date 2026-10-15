@@ -4,12 +4,37 @@ use crate::{io::{ReadExt, ReadSeekExt, WriteExt, WriteSeekExt}, Hash32};
 
 use super::{KFCReadError, KFCWriteError};
 
-const KFC_DIR_MAGIC: u32 = 0x3343464B; // KFC3
+const KFC3_DIR_MAGIC: u32 = 0x3343464B; // KFC3
+const KFC4_DIR_MAGIC: u32 = 0x3443464B; // KFC4
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum KfcFormat {
+    Kfc3,
+    #[default]
+    Kfc4,
+}
+
+impl KfcFormat {
+    const fn magic(self) -> u32 {
+        match self {
+            Self::Kfc3 => KFC3_DIR_MAGIC,
+            Self::Kfc4 => KFC4_DIR_MAGIC,
+        }
+    }
+
+    fn from_magic(magic: u32) -> Option<Self> {
+        match magic {
+            KFC3_DIR_MAGIC => Some(Self::Kfc3),
+            KFC4_DIR_MAGIC => Some(Self::Kfc4),
+            _ => None,
+        }
+    }
+}
 
 /// # Layout
 /// ```c
 /// struct KFCHeader {
-///     u32 magic; // KFC_DIR_MAGIC
+///     u32 magic; // KFC3 or KFC4
 ///     u32 size;
 ///     u32 unk0; // 12
 ///     u8 padding[4];
@@ -40,6 +65,7 @@ const KFC_DIR_MAGIC: u32 = 0x3343464B; // KFC3
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct KFCHeader {
+    pub format: KfcFormat,
     pub size: u64,
     // pub unk0: u32,
 
@@ -72,9 +98,7 @@ impl KFCHeader {
     pub fn read<R: Read + Seek>(reader: &mut R) -> Result<Self, KFCReadError> {
         let magic = reader.read_u32()?;
 
-        if magic != KFC_DIR_MAGIC {
-            return Err(KFCReadError::InvalidMagic(magic));
-        }
+        let format = KfcFormat::from_magic(magic).ok_or(KFCReadError::InvalidMagic(magic))?;
 
         let size = reader.read_u32()? as u64;
         let _unk0 = reader.read_u32()?;
@@ -105,6 +129,7 @@ impl KFCHeader {
         let resource_chunks = KFCLocation::read(reader)?;
 
         Ok(Self {
+            format,
             size,
 
             version,
@@ -137,7 +162,7 @@ impl KFCHeader {
             return Err(KFCWriteError::SizeTooLarge(self.size));
         }
 
-        writer.write_u32(KFC_DIR_MAGIC)?;
+        writer.write_u32(self.format.magic())?;
         writer.write_u32(self.size as u32)?;
         writer.write_u32(12)?;
         writer.padding(4)?;

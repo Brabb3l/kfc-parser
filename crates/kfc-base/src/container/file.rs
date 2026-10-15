@@ -16,6 +16,7 @@ use super::{KFCReadError, KFCWriteError, StaticMap, StaticMapBucket, header::*};
 
 #[derive(Debug, Clone)]
 pub struct KFCFile {
+    format: KfcFormat,
     version: String,
 
     containers: Vec<ContainerInfo>,
@@ -32,6 +33,7 @@ pub struct KFCFile {
 impl Default for KFCFile {
     fn default() -> Self {
         Self {
+            format: KfcFormat::default(),
             resource_locations: vec![ResourceLocation::default()],
             resource_chunks: Vec::default(),
 
@@ -99,6 +101,16 @@ impl KFCFile {
     #[inline]
     pub fn game_version(&self) -> &str {
         &self.version
+    }
+
+    #[inline]
+    pub fn format(&self) -> KfcFormat {
+        self.format
+    }
+
+    #[inline]
+    pub fn set_format(&mut self, format: KfcFormat) {
+        self.format = format;
     }
 
     #[inline]
@@ -319,6 +331,7 @@ impl KFCFile {
                 .collect::<Result<Vec<_>, _>>()?;
 
             Ok(Self {
+                format: header.format,
                 version,
                 containers,
 
@@ -333,6 +346,7 @@ impl KFCFile {
             })
         } else {
             Ok(Self {
+                format: header.format,
                 version,
                 containers: Vec::new(),
                 resource_locations,
@@ -346,7 +360,11 @@ impl KFCFile {
     }
 
     pub(super) fn write<W: Write + Seek>(&self, writer: &mut W) -> Result<(), KFCWriteError> {
-        KFCHeader::default().write(writer)?;
+        KFCHeader {
+            format: self.format,
+            ..Default::default()
+        }
+        .write(writer)?;
 
         // version
         let version_offset = writer.stream_position()?;
@@ -443,6 +461,7 @@ impl KFCFile {
 
         // KFCHeader
         let header = KFCHeader {
+            format: self.format,
             unused0: Default::default(),
             unused1: Default::default(),
 
