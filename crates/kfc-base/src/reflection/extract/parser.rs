@@ -131,7 +131,7 @@ fn read_type(
     pe_file: &PEFile,
     reference_table: &HashMap<u64, usize>,
     index: TypeIndex,
-) -> Result<TypeMetadata> {
+) -> std::result::Result<TypeMetadata, ReflectionParseError> {
     let name = cursor.read_pointee(pe_file)?
         .read_string(cursor.read_u64()? as usize)?;
     let impact_name = cursor.read_pointee(pe_file)?
@@ -148,7 +148,12 @@ fn read_type(
     let alignment = cursor.read_u16()?;
     let element_alignment = cursor.read_u16()?;
     let field_count = cursor.read_u32()?;
-    let primitive_type = PrimitiveType::from_u8(cursor.read_u8()?);
+    let primitive_type = cursor.read_u8()?;
+    let primitive_type = PrimitiveType::from_u8(primitive_type)
+        .ok_or_else(|| ReflectionParseError::UnknownPrimitiveType {
+            value: primitive_type,
+            name: qualified_name.clone(),
+        })?;
     let flags = TypeFlags::from_bits_truncate(cursor.read_u8()?);
     cursor.padding(2)?;
     let qualified_hash = cursor.read_u32()?;
