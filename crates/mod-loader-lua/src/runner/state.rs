@@ -1,4 +1,4 @@
-use std::{cell::{Ref, RefCell}, collections::{HashMap, HashSet}, rc::Rc};
+use std::{cell::{Ref, RefCell}, collections::{BTreeMap, HashMap, HashSet}, rc::Rc};
 
 use mlua::Table;
 use mod_loader::{FileSystem, Mod, ModManifest};
@@ -27,7 +27,8 @@ impl ModLuaState {
 
 #[derive(Default)]
 pub struct RunnerState {
-    mods: RefCell<HashMap<String, ModLuaState>>,
+    // sorted by mod id so that mods run in a deterministic order
+    mods: RefCell<BTreeMap<String, ModLuaState>>,
     loaded: RefCell<HashMap<String, LuaValue>>,
     is_loading: RefCell<HashSet<String>>,
 }
@@ -35,7 +36,7 @@ pub struct RunnerState {
 impl RunnerState {
 
     #[inline]
-    pub fn mods(&self) -> Ref<HashMap<String, ModLuaState>> {
+    pub fn mods(&self) -> Ref<BTreeMap<String, ModLuaState>> {
         self.mods.borrow()
     }
 
@@ -173,3 +174,46 @@ impl RunnerLocalState {
 
 }
 
+#[cfg(test)]
+mod tests {
+    use mod_loader::ModEnvironment;
+
+    use super::*;
+
+    #[test]
+    fn mods_are_ordered_by_id() {
+        let game_dir = std::env::temp_dir()
+            .join(format!("eml-runner-state-test-{}", std::process::id()));
+        let mods_dir = game_dir.join("mods");
+
+        for id in ["c", "a", "b"] {
+            let mod_dir = mods_dir.join(id);
+
+            std::fs::create_dir_all(&mod_dir).unwrap();
+            std::fs::write(
+                mod_dir.join("mod.json"),
+                format!(r#"{{ "id": "{id}", "name": "{id}", "version": "1.0.0" }}"#),
+            ).unwrap();
+        }
+
+        let env = ModEnvironment::load(game_dir.to_str().unwrap());
+
+        std::fs::remove_dir_all(&game_dir).unwrap();
+
+        let env = env.unwrap();
+        let lua = mlua::Lua::new();
+        let state = RunnerState::default();
+
+        for r#mod in env.mod_registry().values() {
+            state.add_mod(r#mod.clone(), lua.create_table().unwrap());
+        }
+
+        let order = state.mods()
+            .values()
+            .map(|m| m.info().id.clone())
+            .collect::<Vec<_>>();
+
+        assert_eq!(order, ["a", "b", "c"]);
+    }
+
+}
