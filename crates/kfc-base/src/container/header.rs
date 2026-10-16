@@ -4,7 +4,7 @@ use crate::{io::{ReadExt, ReadSeekExt, WriteExt, WriteSeekExt}, Hash32};
 
 use super::{KFCReadError, KFCWriteError};
 
-const KFC_DIR_MAGIC: u32 = 0x3343464B; // KFC3
+const KFC_DIR_MAGIC: u32 = 0x3443464B; // KFC4
 
 /// # Layout
 /// ```c
