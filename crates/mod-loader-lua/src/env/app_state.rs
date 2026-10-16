@@ -316,6 +316,11 @@ impl AppState {
         Ok(guid)
     }
 
+    pub fn has_content(&self, guid: &ContentHash) -> bool {
+        self.new_contents.borrow().contains_key(guid)
+            || self.kfc_file().contents().contains_key(guid)
+    }
+
     pub fn get_content(
         &self,
         guid: &ContentHash,
