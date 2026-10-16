@@ -115,20 +115,35 @@ pub fn run(
         let mut applied_resources = 0;
 
         for resource in resources.iter() {
-            let value = resource.apply(&runner.lua)?;
+            let resource_id = &resource.resource_id;
+            let value = resource.apply(&runner.lua)
+                .map_err(|e| anyhow::anyhow!(
+                    "Failed to apply resource {resource_id}: {e}"
+                ))?;
 
             if let Some(value) = value {
-                let r#type = app_state.type_registry()
-                    .get_by_hash(LookupKey::Qualified(resource.resource_id.type_hash()))
-                    .expect("Failed to find type by qualified hash");
+                let Some(r#type) = app_state.type_registry()
+                    .get_by_hash(LookupKey::Qualified(resource_id.type_hash())) else {
+                    anyhow::bail!(
+                        "Failed to find type with hash {:#010x} for resource {resource_id}",
+                        resource_id.type_hash(),
+                    );
+                };
 
                 buf.clear();
-                value.write_into(
+
+                if let Err(e) = value.write_into(
                     app_state.type_registry(),
                     r#type,
                     &mut buf,
-                ).unwrap();
-                writer.write_resource(&resource.resource_id, &buf)?;
+                ) {
+                    anyhow::bail!(
+                        "Failed to serialize resource {resource_id} of type {}: {e}",
+                        r#type.qualified_name,
+                    );
+                }
+
+                writer.write_resource(resource_id, &buf)?;
                 applied_resources += 1;
             }
         }
