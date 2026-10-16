@@ -2,10 +2,17 @@ use std::{borrow::Borrow, collections::HashMap, fs::File, io::{BufReader, Read, 
 
 use crate::{container::KFCReadError, guid::{ContentHash, ResourceId}};
 
-use super::KFCFile;
+use super::{header::ResourceEntry, KFCFile};
+
+/// Resource sizes are stored in 24 bits, so sizes of 16 MiB and larger are
+/// truncated to their lower 24 bits.
+const RESOURCE_SIZE_MODULUS: u64 = 0x1000000;
+const RESOURCE_ALIGNMENT: u64 = 16;
 
 pub struct KFCReader {
     file: KFCFile,
+    /// Sorted, distinct resource offsets followed by the end of the resource data.
+    resource_bounds: Vec<u64>,
 
     path: PathBuf,
     file_name: String,
@@ -65,8 +72,11 @@ impl KFCReader {
             options.resource_extension
         ));
 
+        let resource_bounds = resource_bounds(&file);
+
         Ok(Self {
             file,
+            resource_bounds,
 
             path: path.to_path_buf(),
             file_name: file_name.to_string(),
@@ -89,6 +99,17 @@ impl KFCReader {
     #[inline]
     pub fn kfc_path(&self) -> &Path {
         &self.kfc_path
+    }
+
+    /// Returns the actual size of a resource.
+    ///
+    /// The game stores resource sizes in 24 bits. For resources of 16 MiB and
+    /// larger the stored size is therefore too small by a multiple of 16 MiB.
+    /// The actual size is recovered from the offset of the next resource.
+    pub fn resource_size(&self, guid: &ResourceId) -> Option<u64> {
+        self.file.resources()
+            .get(guid)
+            .map(|entry| actual_resource_size(&self.resource_bounds, entry))
     }
 
     #[inline]
@@ -138,6 +159,12 @@ where
         self.kfc_reader.borrow().file()
     }
 
+    /// See [`KFCReader::resource_size`].
+    #[inline]
+    pub fn resource_size(&self, guid: &ResourceId) -> Option<u64> {
+        self.kfc_reader.borrow().resource_size(guid)
+    }
+
     // pub fn open_resource(
     //     &self,
     //     id: &ResourceId,
@@ -185,15 +212,7 @@ where
             None => return Ok(false),
         };
 
-        // TEMPORARY: until the game devs fix this resource size issue
-        const RID: ResourceId = ResourceId::parse_qualified("509feadb-4c60-425f-9c7c-deeefd9b6920_21b2a090_3").unwrap();
-
-        let resource_size = if guid == &RID && resource.size < 0x1000000 {
-            resource.size + 0x1000000
-        } else {
-            resource.size
-        };
-        // END TEMPORARY
+        let resource_size = actual_resource_size(&kfc_reader.resource_bounds, resource);
 
         let chunk_start = file.resource_chunks()
             .iter()
@@ -388,4 +407,75 @@ where
         Ok(BufReader::new(File::open(self.dat_path(index))?))
     }
 
+}
+
+fn resource_bounds(file: &KFCFile) -> Vec<u64> {
+    let mut bounds = file.resources()
+        .values()
+        .iter()
+        .map(|entry| entry.offset)
+        .collect::<Vec<_>>();
+
+    let data_end = file.resource_chunks()
+        .iter()
+        .map(|chunk| chunk.uncompressed_offset + chunk.uncompressed_size)
+        .max()
+        .unwrap_or(0);
+
+    bounds.sort_unstable();
+    bounds.dedup();
+    bounds.push(data_end);
+    bounds
+}
+
+/// Returns the size of the resource, corrected for sizes that were truncated
+/// to 24 bits.
+///
+/// The space up to the next resource must match the stored size plus a
+/// multiple of 16 MiB and less than the resource alignment, otherwise the
+/// stored size is used as is (e.g. unused space left behind by patching).
+fn actual_resource_size(bounds: &[u64], entry: &ResourceEntry) -> u64 {
+    let next = match bounds.binary_search(&entry.offset) {
+        Ok(index) => bounds.get(index + 1),
+        Err(index) => bounds.get(index),
+    };
+
+    let Some(&next) = next else {
+        return entry.size;
+    };
+
+    let Some(gap) = next.checked_sub(entry.offset + entry.size) else {
+        return entry.size;
+    };
+
+    let missing = gap - gap % RESOURCE_SIZE_MODULUS;
+
+    if missing > 0 && gap - missing < RESOURCE_ALIGNMENT {
+        entry.size + missing
+    } else {
+        entry.size
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(offset: u64, size: u64) -> ResourceEntry {
+        ResourceEntry { offset, size }
+    }
+
+    #[test]
+    fn test_actual_resource_size() {
+        let bounds = vec![0, 32, 32 + 0x2000000 + 16, 0x3000000];
+
+        // regular resources keep their stored size
+        assert_eq!(actual_resource_size(&bounds, &entry(0, 24)), 24);
+        // truncated by 2 * 16 MiB, followed by alignment padding
+        assert_eq!(actual_resource_size(&bounds, &entry(32, 12)), 12 + 0x2000000);
+        // gap that does not match a truncated size is left alone
+        assert_eq!(actual_resource_size(&bounds, &entry(32 + 0x2000000 + 16, 100)), 100);
+        // offset not in bounds and past the end
+        assert_eq!(actual_resource_size(&bounds, &entry(0x4000000, 8)), 8);
+    }
 }
