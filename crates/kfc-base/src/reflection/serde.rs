@@ -25,7 +25,8 @@ impl<'de> Deserialize<'de> for TypeRegistry {
             ..Default::default()
         };
 
-        registry.extend(data.types);
+        registry.extend(data.types)
+            .map_err(serde::de::Error::custom)?;
 
         Ok(registry)
     }

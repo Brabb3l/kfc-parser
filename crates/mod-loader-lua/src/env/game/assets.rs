@@ -208,7 +208,7 @@ fn lua_get_content(
 
     let guid = args.get::<ContentHash>(0)?;
 
-    if !app_state.kfc_file().contents().contains_key(&guid) {
+    if !app_state.has_content(&guid) {
         return Ok(None);
     }
 
