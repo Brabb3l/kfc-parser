@@ -31,4 +31,6 @@ pub enum StaticMapError {
     BucketCountMismatch(usize, usize),
     #[error("Bucket size must be a power of 2: {0}")]
     InvalidBucketSize(usize),
+    #[error("Bucket range out of bounds: index {0} + count {1} > key count {2}")]
+    BucketOutOfRange(usize, usize, usize),
 }
