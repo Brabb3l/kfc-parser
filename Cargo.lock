@@ -537,6 +537,7 @@ version = "0.1.2"
 dependencies = [
  "camino",
  "mod-loader",
+ "mod-loader-bridge",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
@@ -599,6 +600,7 @@ version = "0.1.2"
 dependencies = [
  "camino",
  "mod-loader",
+ "mod-loader-bridge",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
@@ -1191,6 +1193,14 @@ dependencies = [
  "tracing",
  "walkdir",
  "zip",
+]
+
+[[package]]
+name = "mod-loader-bridge"
+version = "0.1.2"
+dependencies = [
+ "serde_json",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]

@@ -10,6 +10,7 @@ members = [
     "crates/mod-loader-base",
     "crates/mod-loader-lua",
     "crates/mod-loader-runtime",
+    "crates/mod-loader-bridge",
 
     "crates/mod-manager-cli",
     "crates/mod-manager-gui",
