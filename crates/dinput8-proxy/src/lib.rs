@@ -66,7 +66,8 @@ extern "system" fn DllMain(
             match unsafe { init_procs() } {
                 Ok(()) => {
                     match mod_loader_bridge::try_start() {
-                        mod_loader_bridge::Handoff::Started => {}
+                        mod_loader_bridge::Handoff::Started
+                        | mod_loader_bridge::Handoff::Recovering => {}
                         mod_loader_bridge::Handoff::EmlSelected => {
                             let enable_console = std::env::var("EML_CONSOLE")
                                 .map(|s| matches!(s.to_lowercase().as_str(), "true" | "1" | "yes"))

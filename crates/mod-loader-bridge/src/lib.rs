@@ -44,7 +44,61 @@ pub fn selected_backend() -> Backend {
 pub enum Handoff {
     EmlSelected,
     Started,
+    Recovering,
     Failed,
+}
+
+/// Checks every file installed by the release before its native code is loaded.
+/// A missing or invalid manifest also requires repairing the installation.
+pub fn missing_required_files(root: &Path) -> Vec<String> {
+    use std::path::Component;
+
+    let manifest = fs::read(root.join("shroudforge/version.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+    let Some(manifest_paths) = manifest
+        .as_ref()
+        .and_then(|value| value["managedPaths"].as_array())
+    else {
+        return vec!["shroudforge/version.json".into()];
+    };
+    let Some(manifest_paths) = manifest_paths
+        .iter()
+        .map(serde_json::Value::as_str)
+        .collect::<Option<Vec<_>>>()
+    else {
+        return vec!["shroudforge/version.json".into()];
+    };
+    if manifest_paths.is_empty() {
+        return vec!["shroudforge/version.json".into()];
+    }
+    let mut paths = manifest_paths
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if !paths.iter().any(|path| path == "shroudforge/version.json") {
+        paths.push("shroudforge/version.json".into());
+    }
+    if paths.iter().any(|path| {
+        let path = Path::new(path);
+        path.as_os_str().is_empty()
+            || !path
+                .components()
+                .all(|component| matches!(component, Component::Normal(_)))
+    }) {
+        return vec!["shroudforge/version.json".into()];
+    }
+    let mods = configured_directory(root, "mods", "mods");
+    paths
+        .into_iter()
+        .filter(|path| {
+            let installed = path
+                .strip_prefix("mods/")
+                .map(|relative| mods.join(relative))
+                .unwrap_or_else(|| root.join(path));
+            !installed.is_file()
+        })
+        .collect()
 }
 
 /// Starts the configured external backend, or leaves startup to EML.
@@ -66,19 +120,15 @@ fn try_start_shroudforge() -> Handoff {
     let Some(root) = game_root() else {
         return failed_handoff(None, "could not determine the game directory".to_owned());
     };
-    let runtime = root.join("shroudforge/shroudforge-runtime.dll");
     let bootstrap = root.join("winmm.dll");
-
-    if !bootstrap.is_file() {
+    let missing = missing_required_files(&root);
+    if !missing.is_empty() {
         return failed_handoff(
             Some(bootstrap),
-            "winmm.dll bootstrap is missing".to_owned(),
-        );
-    }
-    if !runtime.is_file() {
-        return failed_handoff(
-            Some(bootstrap),
-            "shroudforge-runtime.dll is missing".to_owned(),
+            format!(
+                "installation requires repair, missing or invalid files: {}",
+                missing.join(", ")
+            ),
         );
     }
 
@@ -112,7 +162,133 @@ fn failed_handoff(bootstrap: Option<PathBuf>, error: String) -> Handoff {
         "ShroudForge mode is enabled, but bootstrap{path} failed: {error}. EML was not started"
     );
     let _ = write_diagnostic('E', "native-proxy", &message);
-    Handoff::Failed
+    #[cfg(windows)]
+    {
+        queue_recovery(message)
+    }
+    #[cfg(not(windows))]
+    {
+        Handoff::Failed
+    }
+}
+
+#[cfg(windows)]
+fn queue_recovery(message: String) -> Handoff {
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError},
+        System::Threading::{CreateMutexW, CreateThread, GetCurrentProcessId},
+    };
+
+    // Each proxy links this bridge separately. Keep one named handle alive until
+    // process exit so they cannot start competing recovery workers.
+    let name = format!("Local\\ShroudForgeRecovery-{}", unsafe {
+        GetCurrentProcessId()
+    })
+    .encode_utf16()
+    .chain(Some(0))
+    .collect::<Vec<_>>();
+    let mutex = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
+    if mutex.is_null() {
+        let _ = write_diagnostic(
+            'E',
+            "native-proxy",
+            &format!(
+                "Could not reserve recovery worker: Windows error {}",
+                unsafe { GetLastError() }
+            ),
+        );
+        return Handoff::Failed;
+    }
+    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+        unsafe { CloseHandle(mutex) };
+        return Handoff::Recovering;
+    }
+
+    let context = Box::into_raw(Box::new(message));
+    // DllMain must return successfully so the proxy remains loaded. Windows
+    // starts this callback only after DLL initialization releases the loader lock.
+    // Never wait for the thread here or launch a process/UI from DllMain.
+    let thread = unsafe {
+        CreateThread(
+            std::ptr::null(),
+            0,
+            Some(recover_installation),
+            context.cast(),
+            0,
+            std::ptr::null_mut(),
+        )
+    };
+    if thread.is_null() {
+        let error = unsafe { GetLastError() };
+        unsafe {
+            drop(Box::from_raw(context));
+            CloseHandle(mutex);
+        }
+        let _ = write_diagnostic(
+            'E',
+            "native-proxy",
+            &format!("Could not start recovery worker: Windows error {error}"),
+        );
+        return Handoff::Failed;
+    }
+    unsafe { CloseHandle(thread) };
+    Handoff::Recovering
+}
+
+#[cfg(windows)]
+unsafe extern "system" fn recover_installation(context: *mut std::ffi::c_void) -> u32 {
+    use std::os::windows::process::CommandExt;
+    use windows_sys::Win32::{
+        Foundation::ERROR_DLL_INIT_FAILED,
+        System::Threading::{CREATE_NO_WINDOW, ExitProcess},
+        UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MB_SETFOREGROUND, MessageBoxW},
+    };
+
+    let message = unsafe { Box::from_raw(context.cast::<String>()) };
+    let result: Result<(), String> = (|| {
+        let root = game_root().ok_or("Could not determine the game directory".to_owned())?;
+        let updater = root.join("shroudforge/shroudforge-updater.exe");
+        std::process::Command::new(&updater)
+            .args(["--open-window", "--root"])
+            .arg(&root)
+            .current_dir(&root)
+            .creation_flags(CREATE_NO_WINDOW)
+            // Recovery owns its dialogs and logging. Do not wait for it or keep
+            // the game process alive while it prepares the independent UI.
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|error| format!("Could not start {}: {error}", updater.display()))?;
+        Ok(())
+    })();
+    match result {
+        Ok(()) => {
+            let _ = write_diagnostic(
+                'I',
+                "native-proxy",
+                "Independent recovery updater launched. Enshrouded is exiting so the installation can be repaired",
+            );
+        }
+        Err(error) => {
+            let _ = write_diagnostic('E', "native-proxy", &error);
+            let text = format!("{message}\n\n{error}\n\nEnshrouded will close. Restore ShroudForge from its release package before starting the game again.")
+                .encode_utf16().chain(Some(0)).collect::<Vec<_>>();
+            let title = "ShroudForge startup error"
+                .encode_utf16()
+                .chain(Some(0))
+                .collect::<Vec<_>>();
+            unsafe {
+                MessageBoxW(
+                    std::ptr::null_mut(),
+                    text.as_ptr(),
+                    title.as_ptr(),
+                    MB_OK | MB_ICONERROR | MB_SETFOREGROUND,
+                )
+            };
+        }
+    }
+    unsafe { ExitProcess(ERROR_DLL_INIT_FAILED) }
 }
 
 /// Writes a diagnostic for ShroudForge to consume before its logger starts.
