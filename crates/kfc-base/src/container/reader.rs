@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, collections::HashMap, fs::File, io::{BufReader, Read, Seek, SeekFrom, Take}, path::{Path, PathBuf}};
+use std::{borrow::Borrow, fs::File, io::{BufReader, Read, Seek, SeekFrom, Take}, path::{Path, PathBuf}, sync::{Mutex, OnceLock}};
 
 use crate::{container::KFCReadError, guid::{ContentHash, ResourceId}};
 
@@ -13,12 +13,18 @@ pub struct KFCReader {
     file: KFCFile,
     /// Sorted, distinct resource offsets followed by the end of the resource data.
     resource_bounds: Vec<u64>,
+    resource_chunk_cache: Vec<ResourceChunkCacheEntry>,
 
     path: PathBuf,
     file_name: String,
     kfc_path: PathBuf,
     dat_extension: String,
     resource_path: PathBuf,
+}
+
+struct ResourceChunkCacheEntry {
+    data: OnceLock<Vec<u8>>,
+    mutex: Mutex<()>,
 }
 
 #[derive(Debug)]
@@ -74,9 +80,19 @@ impl KFCReader {
 
         let resource_bounds = resource_bounds(&file);
 
+        let mut resource_chunk_cache = Vec::with_capacity(file.resource_chunks().len());
+
+        for _ in 0..file.resource_chunks().len() {
+            resource_chunk_cache.push(ResourceChunkCacheEntry {
+                data: OnceLock::new(),
+                mutex: Mutex::new(()),
+            });
+        }
+
         Ok(Self {
             file,
             resource_bounds,
+            resource_chunk_cache,
 
             path: path.to_path_buf(),
             file_name: file_name.to_string(),
@@ -129,7 +145,6 @@ pub struct KFCCursor<R> {
     reader: BufReader<File>,
     container_readers: Vec<Option<BufReader<File>>>,
 
-    chunk_cache: HashMap<usize, Vec<u8>>,
     buffer: Vec<u8>,
 }
 
@@ -149,7 +164,6 @@ where
             reader,
             container_readers: Vec::new(),
 
-            chunk_cache: HashMap::new(),
             buffer: Vec::new(),
         })
     }
@@ -275,38 +289,46 @@ where
     fn decompress_chunk(
         &mut self,
         index: usize
-    ) -> std::io::Result<&[u8]> {
-        self.decompress_chunk_impl(index)?;
-        Ok(self.chunk_cache.get(&index).unwrap())
-    }
+    ) -> std::io::Result<&Vec<u8>> {
+        let Some(entry) = self.kfc_reader.borrow()
+            .resource_chunk_cache
+            .get(index)
+        else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "attempted to read resource chunk that is out of bounds"
+            ));
+        };
 
-    fn decompress_chunk_impl(
-        &mut self,
-        index: usize
-    ) -> std::io::Result<()> {
-        match self.chunk_cache.get(&index) {
-            Some(_) => Ok(()),
-            None => {
-                let kfc_reader = self.kfc_reader.borrow();
-                let chunk = &kfc_reader.file.resource_chunks()[index];
-
-                self.buffer.clear();
-                self.buffer.resize(chunk.compressed_size as usize, 0);
-
-                self.reader.seek(SeekFrom::Start(chunk.offset))?;
-                self.reader.read_exact(&mut self.buffer[..chunk.compressed_size as usize])?;
-
-                let mut decompressed_data = Vec::with_capacity(chunk.uncompressed_size as usize);
-                zstd::stream::copy_decode(
-                    &mut &self.buffer[..],
-                    &mut decompressed_data
-                )?;
-
-                self.chunk_cache.insert(index, decompressed_data);
-
-                Ok(())
-            }
+        if let Some(data) = entry.data.get() {
+            return Ok(data);
         }
+
+        let _lock = entry.mutex.lock().unwrap();
+
+        // check again in case another thread has already decompressed the chunk
+        // within `data.get()` and `mutex.lock()`
+        if let Some(data) = entry.data.get() {
+            return Ok(data);
+        }
+
+        // decompress chunk
+        let kfc_reader = self.kfc_reader.borrow();
+        let chunk = &kfc_reader.file.resource_chunks()[index];
+
+        self.buffer.clear();
+        self.buffer.resize(chunk.compressed_size as usize, 0);
+
+        self.reader.seek(SeekFrom::Start(chunk.offset))?;
+        self.reader.read_exact(&mut self.buffer[..chunk.compressed_size as usize])?;
+
+        let mut decompressed_data = Vec::with_capacity(chunk.uncompressed_size as usize);
+        zstd::stream::copy_decode(
+            &mut &self.buffer[..],
+            &mut decompressed_data
+        )?;
+
+        Ok(entry.data.get_or_init(|| decompressed_data))
     }
 
     pub fn open_content(
