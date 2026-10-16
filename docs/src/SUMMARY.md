@@ -30,6 +30,7 @@
   - [Type Format](./game/kfc/types.md)
   - [KFC3/KFC4 Parser Comparison (English)](./game/kfc/kfc3-vs-kfc4/comparison.en.md)
   - [KFC3/KFC4 Parservergleich (Deutsch)](./game/kfc/kfc3-vs-kfc4/comparison.de.md)
+  - [Parser Performance and KFC4 Writer Checks](./game/kfc/parser-performance.md)
 
 # kfc-parser (deprecated)
 
