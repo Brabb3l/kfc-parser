@@ -125,8 +125,8 @@ pub enum PrimitiveType {
 }
 
 impl PrimitiveType {
-    pub fn from_u8(value: u8) -> Self {
-        match value {
+    pub fn from_u8(value: u8) -> Option<Self> {
+        Some(match value {
             0x0 => Self::None,
             0x1 => Self::Bool,
             0x2 => Self::UInt8,
@@ -157,8 +157,8 @@ impl PrimitiveType {
             0x1B => Self::BlobVariant,
             0x1C => Self::ObjectReference,
             0x1D => Self::Guid,
-            _ => panic!("Invalid PrimitiveType: 0x{value:X}"),
-        }
+            _ => return None,
+        })
     }
 
     pub fn to_u8(&self) -> u8 {
@@ -204,3 +204,26 @@ impl PartialEq for TypeMetadata {
 }
 
 impl Eq for TypeMetadata {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn primitive_type_from_u8_roundtrip() {
+        for value in 0x0..=0x1D {
+            let primitive_type = PrimitiveType::from_u8(value).unwrap();
+            assert_eq!(primitive_type.to_u8(), value);
+        }
+
+        assert_eq!(PrimitiveType::from_u8(0x0), Some(PrimitiveType::None));
+        assert_eq!(PrimitiveType::from_u8(0x12), Some(PrimitiveType::Struct));
+        assert_eq!(PrimitiveType::from_u8(0x1D), Some(PrimitiveType::Guid));
+    }
+
+    #[test]
+    fn primitive_type_from_u8_unknown() {
+        assert_eq!(PrimitiveType::from_u8(0x1E), None);
+        assert_eq!(PrimitiveType::from_u8(0xFF), None);
+    }
+}
