@@ -379,7 +379,7 @@ checksum = "b94f61472cee1439c0b966b47e3aca9ae07e45d070759512cd390ea2bebc6675"
 
 [[package]]
 name = "cli-legacy"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -533,7 +533,7 @@ dependencies = [
 
 [[package]]
 name = "dbghelp-proxy"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "camino",
  "mod-loader",
@@ -595,7 +595,7 @@ dependencies = [
 
 [[package]]
 name = "dinput8-proxy"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "camino",
  "mod-loader",
@@ -947,7 +947,7 @@ dependencies = [
 
 [[package]]
 name = "kfc"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "kfc-base",
  "kfc-content",
@@ -957,7 +957,7 @@ dependencies = [
 
 [[package]]
 name = "kfc-base"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "aes",
  "bitflags 2.10.0",
@@ -969,7 +969,7 @@ dependencies = [
 
 [[package]]
 name = "kfc-content"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "block_compression",
@@ -984,7 +984,7 @@ dependencies = [
 
 [[package]]
 name = "kfc-resource"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "indexmap",
  "kfc-base",
@@ -1170,7 +1170,7 @@ dependencies = [
 
 [[package]]
 name = "mod-loader"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "mod-loader-base",
  "mod-loader-lua",
@@ -1179,7 +1179,7 @@ dependencies = [
 
 [[package]]
 name = "mod-loader-base"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "camino",
  "indexmap",
@@ -1195,7 +1195,7 @@ dependencies = [
 
 [[package]]
 name = "mod-loader-lua"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bitflags 2.10.0",
@@ -1220,7 +1220,7 @@ dependencies = [
 
 [[package]]
 name = "mod-loader-runtime"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "mod-loader-base",
  "parking_lot",
@@ -1229,7 +1229,7 @@ dependencies = [
 
 [[package]]
 name = "mod-manager-cli"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "clap",
  "clap_derive",
@@ -1247,7 +1247,7 @@ dependencies = [
 
 [[package]]
 name = "mod-manager-gui"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "mod-loader",
  "tracing",
