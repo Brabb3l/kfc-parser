@@ -46,6 +46,9 @@ impl<K: std::cmp::PartialEq + StaticHash, V> StaticMap<K, V> {
     }
 
     pub fn get(&self, key: &K) -> Option<&V> {
+        if self.buckets.is_empty() {
+            return None;
+        }
         let hash = key.static_hash();
         let bucket_index = hash as usize % self.buckets.len();
         let bucket = &self.buckets[bucket_index];

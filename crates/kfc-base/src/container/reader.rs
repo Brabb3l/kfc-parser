@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, collections::{HashMap, VecDeque}, fs::File, io::{BufReader, Read, Seek, SeekFrom, Take}, path::{Path, PathBuf}};
+use std::{borrow::Borrow, fs::File, io::{BufReader, Read, Seek, SeekFrom, Take}, path::{Path, PathBuf}, sync::{Mutex, OnceLock}};
 
 use crate::{container::KFCReadError, guid::{ContentHash, ResourceId}};
 
@@ -8,55 +8,29 @@ use super::{header::ResourceEntry, KFCFile};
 /// truncated to their lower 24 bits.
 const RESOURCE_SIZE_MODULUS: u64 = 0x1000000;
 const RESOURCE_ALIGNMENT: u64 = 16;
-// Bound retained decompressed data per cursor. A single larger chunk is kept alone.
-const RESOURCE_CHUNK_CACHE_SIZE: usize = 32 * 1024 * 1024;
 
-struct ResourceChunkCache {
-    chunks: HashMap<usize, Vec<u8>>,
-    order: VecDeque<usize>,
-    size: usize,
-    max_size: usize,
+#[derive(Default)]
+struct ResourceChunkCacheEntry {
+    data: OnceLock<Box<[u8]>>,
+    loading: Mutex<()>,
 }
 
-impl ResourceChunkCache {
-    fn new(max_size: usize) -> Self {
-        Self {
-            chunks: HashMap::new(),
-            order: VecDeque::new(),
-            size: 0,
-            max_size,
-        }
-    }
-
-    fn get(&mut self, index: usize) -> Option<&[u8]> {
-        if !self.chunks.contains_key(&index) {
-            return None;
+impl ResourceChunkCacheEntry {
+    fn get_or_load(&self, load: impl FnOnce() -> std::io::Result<Vec<u8>>) -> std::io::Result<&[u8]> {
+        if let Some(data) = self.data.get() {
+            return Ok(data);
         }
 
-        self.order.retain(|cached_index| *cached_index != index);
-        self.order.push_back(index);
-        self.chunks.get(&index).map(Vec::as_slice)
-    }
-
-    fn insert(&mut self, index: usize, data: Vec<u8>) {
-        if let Some(old_data) = self.chunks.remove(&index) {
-            self.size -= old_data.capacity();
-            self.order.retain(|cached_index| *cached_index != index);
+        // Serialize only this chunk's first load. Hits never acquire a mutex,
+        // and failed loads leave the entry empty so another cursor can retry.
+        let _loading = self.loading.lock()
+            .map_err(|_| std::io::Error::other("Resource chunk cache lock poisoned"))?;
+        if let Some(data) = self.data.get() {
+            return Ok(data);
         }
 
-        while self.size.saturating_add(data.capacity()) > self.max_size {
-            let Some(oldest_index) = self.order.pop_front() else {
-                break;
-            };
-
-            if let Some(old_data) = self.chunks.remove(&oldest_index) {
-                self.size -= old_data.capacity();
-            }
-        }
-
-        self.size = self.size.saturating_add(data.capacity());
-        self.order.push_back(index);
-        self.chunks.insert(index, data);
+        let data = load()?.into_boxed_slice();
+        Ok(self.data.get_or_init(|| data))
     }
 }
 
@@ -64,6 +38,11 @@ pub struct KFCReader {
     file: KFCFile,
     /// Sorted, distinct resource offsets followed by the end of the resource data.
     resource_bounds: Vec<u64>,
+    resource_chunks_ordered: bool,
+    /// Lazy decompressed data shared by every cursor, retained until this reader
+    /// is dropped. The maximum payload is the sum of uncompressed chunk sizes,
+    /// rather than that sum multiplied by the number of cursors.
+    chunk_cache: Vec<ResourceChunkCacheEntry>,
 
     path: PathBuf,
     file_name: String,
@@ -124,10 +103,19 @@ impl KFCReader {
         ));
 
         let resource_bounds = resource_bounds(&file);
+        let resource_chunks_ordered = file.resource_chunks().windows(2).all(|pair| {
+            pair[0].uncompressed_offset.checked_add(pair[0].uncompressed_size)
+                .is_some_and(|end| end <= pair[1].uncompressed_offset)
+        });
+        let chunk_cache = (0..file.resource_chunks().len())
+            .map(|_| ResourceChunkCacheEntry::default())
+            .collect();
 
         Ok(Self {
             file,
             resource_bounds,
+            resource_chunks_ordered,
+            chunk_cache,
 
             path: path.to_path_buf(),
             file_name: file_name.to_string(),
@@ -180,7 +168,6 @@ pub struct KFCCursor<R> {
     reader: BufReader<File>,
     container_readers: Vec<Option<BufReader<File>>>,
 
-    chunk_cache: ResourceChunkCache,
     buffer: Vec<u8>,
 }
 
@@ -200,7 +187,6 @@ where
             reader,
             container_readers: Vec::new(),
 
-            chunk_cache: ResourceChunkCache::new(RESOURCE_CHUNK_CACHE_SIZE),
             buffer: Vec::new(),
         })
     }
@@ -265,34 +251,36 @@ where
 
         let resource_size = actual_resource_size(&kfc_reader.resource_bounds, resource);
 
-        let chunk_start = file.resource_chunks()
-            .iter()
-            .position(|chunk| {
-                (chunk.uncompressed_offset..chunk.uncompressed_offset + chunk.uncompressed_size)
-                    .contains(&resource.offset)
-            });
+        if resource_size == 0 {
+            return Ok(true);
+        }
+
+        let resource_end = resource.offset.checked_add(resource_size)
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Resource range overflow"))?;
+        let chunk_start = resource_chunk_index(
+            file.resource_chunks(), kfc_reader.resource_chunks_ordered, resource.offset,
+        );
 
         let chunk_start = match chunk_start {
             Some(chunk) => chunk,
             None => return Ok(false),
         };
 
-        let chunk_end = file.resource_chunks()
-            .iter()
-            .rposition(|chunk| {
-                (chunk.uncompressed_offset..=chunk.uncompressed_offset + chunk.uncompressed_size)
-                    .contains(&(resource.offset + resource_size))
-            });
+        // The resource end is exclusive. Looking up the end itself would also
+        // decompress the next chunk when the resource ends at a chunk boundary.
+        let chunk_end = resource_chunk_index(
+            file.resource_chunks(), kfc_reader.resource_chunks_ordered, resource_end - 1,
+        );
 
         let chunk_end = match chunk_end {
             Some(chunk) => chunk,
             None => return Ok(false),
         };
 
-        dst.reserve_exact(resource_size.saturating_sub(dst.len() as u64) as usize);
+        dst.reserve_exact(resource_size as usize);
 
         let mut remaining_size = resource_size;
-        let resource_offset = resource.offset;
+        let mut resource_offset = resource.offset;
 
         for i in chunk_start..=chunk_end {
             let base_offset = self.kfc_reader.borrow()
@@ -302,22 +290,19 @@ where
 
             let chunk_data = self.decompress_chunk(i)?;
 
-            let size = if resource_offset > base_offset {
-                let available = chunk_data.len() as u64 - (resource_offset - base_offset);
-                std::cmp::min(available, remaining_size)
-            } else {
-                let available = chunk_data.len() as u64;
-                std::cmp::min(available, remaining_size)
-            };
-
-            let offset = if resource_offset > base_offset {
-                (resource_offset - base_offset) as usize
-            } else {
-                0
-            };
+            let offset = resource_offset.checked_sub(base_offset)
+                .filter(|&offset| offset < chunk_data.len() as u64)
+                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Resource chunk range has a gap or overlap"))?
+                as usize;
+            let size = std::cmp::min((chunk_data.len() - offset) as u64, remaining_size);
 
             dst.extend_from_slice(&chunk_data[offset .. offset + size as usize]);
             remaining_size -= size;
+            resource_offset += size;
+        }
+
+        if remaining_size != 0 {
+            return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Incomplete resource chunk range"));
         }
 
         Ok(true)
@@ -327,36 +312,23 @@ where
         &mut self,
         index: usize
     ) -> std::io::Result<&[u8]> {
-        self.decompress_chunk_impl(index)?;
-        Ok(self.chunk_cache.get(index).unwrap())
-    }
-
-    fn decompress_chunk_impl(
-        &mut self,
-        index: usize
-    ) -> std::io::Result<()> {
-        if self.chunk_cache.get(index).is_some() {
-            return Ok(());
-        }
-
         let kfc_reader = self.kfc_reader.borrow();
         let chunk = &kfc_reader.file.resource_chunks()[index];
+        let reader = &mut self.reader;
+        let buffer = &mut self.buffer;
 
-        self.buffer.clear();
-        self.buffer.resize(chunk.compressed_size as usize, 0);
+        kfc_reader.chunk_cache[index].get_or_load(|| {
+            buffer.resize(chunk.compressed_size as usize, 0);
+            reader.seek(SeekFrom::Start(chunk.offset))?;
+            reader.read_exact(buffer)?;
 
-        self.reader.seek(SeekFrom::Start(chunk.offset))?;
-        self.reader.read_exact(&mut self.buffer[..chunk.compressed_size as usize])?;
-
-        let mut decompressed_data = Vec::with_capacity(chunk.uncompressed_size as usize);
-        zstd::stream::copy_decode(
-            &mut &self.buffer[..],
-            &mut decompressed_data
-        )?;
-
-        self.chunk_cache.insert(index, decompressed_data);
-
-        Ok(())
+            let mut decompressed_data = Vec::with_capacity(chunk.uncompressed_size as usize);
+            zstd::stream::copy_decode(&mut &buffer[..], &mut decompressed_data)?;
+            if decompressed_data.len() as u64 != chunk.uncompressed_size {
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Decompressed chunk size does not match the index"));
+            }
+            Ok(decompressed_data)
+        })
     }
 
     pub fn open_content(
@@ -459,6 +431,26 @@ where
 
 }
 
+fn resource_chunk_index(
+    chunks: &[super::header::ResourceChunkInfo],
+    ordered: bool,
+    offset: u64,
+) -> Option<usize> {
+    let contains = |chunk: &super::header::ResourceChunkInfo| {
+        chunk.uncompressed_offset <= offset
+            && chunk.uncompressed_offset.checked_add(chunk.uncompressed_size)
+                .is_some_and(|end| offset < end)
+    };
+    if ordered {
+        let index = chunks.partition_point(|chunk| chunk.uncompressed_offset <= offset)
+            .checked_sub(1)?;
+        contains(&chunks[index]).then_some(index)
+    } else {
+        // Keep supporting tables that are not ordered by uncompressed offset.
+        chunks.iter().position(contains)
+    }
+}
+
 fn resource_bounds(file: &KFCFile) -> Vec<u64> {
     let mut bounds = file.resources()
         .values()
@@ -530,27 +522,127 @@ mod tests {
     }
 
     #[test]
-    fn test_resource_chunk_cache_evicts_least_recently_used_chunks() {
-        let mut cache = ResourceChunkCache::new(7);
-        cache.insert(0, vec![0; 4]);
-        cache.insert(1, vec![1; 2]);
+    fn concurrent_chunk_requests_load_once_and_share_the_same_allocation() {
+        use std::sync::{Barrier, atomic::{AtomicUsize, Ordering}};
 
-        assert!(cache.get(0).is_some());
-        cache.insert(2, vec![2; 3]);
+        let cache = ResourceChunkCacheEntry::default();
+        let loads = AtomicUsize::new(0);
+        let start = Barrier::new(8);
+        let pointers = std::thread::scope(|scope| {
+            let handles = (0..8).map(|_| {
+                scope.spawn(|| {
+                    start.wait();
+                    let data = cache.get_or_load(|| {
+                        loads.fetch_add(1, Ordering::Relaxed);
+                        Ok(vec![42; 1024])
+                    }).unwrap();
+                    assert_eq!(data, &[42; 1024]);
+                    data.as_ptr() as usize
+                })
+            }).collect::<Vec<_>>();
+            handles.into_iter().map(|handle| handle.join().unwrap()).collect::<Vec<_>>()
+        });
 
-        assert!(cache.get(0).is_some());
-        assert!(cache.get(1).is_none());
-        assert!(cache.get(2).is_some());
-        assert!(cache.size <= cache.max_size);
+        assert_eq!(loads.load(Ordering::Relaxed), 1);
+        assert!(pointers.iter().all(|pointer| *pointer == pointers[0]));
     }
 
     #[test]
-    fn test_resource_chunk_cache_keeps_a_single_oversized_chunk() {
-        let mut cache = ResourceChunkCache::new(4);
-        cache.insert(0, vec![0; 2]);
-        cache.insert(1, vec![1; 6]);
+    fn failed_chunk_load_can_be_retried() {
+        let cache = ResourceChunkCacheEntry::default();
+        let failure = cache.get_or_load(|| Err(std::io::Error::new(
+            std::io::ErrorKind::Interrupted, "transient read failure",
+        )));
+        assert_eq!(failure.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
 
-        assert!(cache.get(0).is_none());
-        assert_eq!(cache.get(1).map(<[u8]>::len), Some(6));
+        assert_eq!(cache.get_or_load(|| Ok(vec![1, 2, 3])).unwrap(), [1, 2, 3]);
+        assert_eq!(cache.get_or_load(|| panic!("cached data must not be loaded again")).unwrap(), [1, 2, 3]);
+    }
+
+    #[test]
+    fn chunk_lookup_uses_exclusive_ends_and_rejects_gaps() {
+        use super::super::header::ResourceChunkInfo;
+
+        let chunk = |offset, size| ResourceChunkInfo {
+            uncompressed_offset: offset,
+            uncompressed_size: size,
+            ..Default::default()
+        };
+        let chunks = [chunk(0, 8), chunk(8, 8), chunk(20, 4)];
+        for ordered in [true, false] {
+            assert_eq!(resource_chunk_index(&chunks, ordered, 0), Some(0));
+            assert_eq!(resource_chunk_index(&chunks, ordered, 7), Some(0));
+            assert_eq!(resource_chunk_index(&chunks, ordered, 8), Some(1));
+            assert_eq!(resource_chunk_index(&chunks, ordered, 15), Some(1));
+            assert_eq!(resource_chunk_index(&chunks, ordered, 16), None);
+            assert_eq!(resource_chunk_index(&chunks, ordered, 23), Some(2));
+            assert_eq!(resource_chunk_index(&chunks, ordered, 24), None);
+        }
+
+        let unordered = [chunk(20, 4), chunk(0, 8), chunk(8, 8)];
+        assert_eq!(resource_chunk_index(&unordered, false, 4), Some(1));
+    }
+
+    #[test]
+    fn resource_reads_cross_boundaries_and_reuse_chunks_across_cursors() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use super::super::header::{ResourceBundleEntry, ResourceChunkInfo};
+
+        static NEXT_DIRECTORY: AtomicUsize = AtomicUsize::new(0);
+        struct TestDirectory(PathBuf);
+        impl Drop for TestDirectory {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).unwrap();
+            }
+        }
+
+        let directory = TestDirectory(std::env::temp_dir().join(format!(
+            "kfc-reader-{}-{}", std::process::id(), NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed),
+        )));
+        std::fs::create_dir(&directory.0).unwrap();
+        let bytes = (0..128).collect::<Vec<u8>>();
+        let mut blob = Vec::new();
+        let chunks = bytes.chunks(64).enumerate().map(|(index, data)| {
+            let compressed = zstd::encode_all(data, 0).unwrap();
+            let chunk = ResourceChunkInfo {
+                offset: blob.len() as u64,
+                size: compressed.len() as u64,
+                compressed_size: compressed.len() as u64,
+                uncompressed_offset: index as u64 * 64,
+                uncompressed_size: data.len() as u64,
+            };
+            blob.extend_from_slice(&compressed);
+            chunk
+        }).collect();
+        let first = ResourceId::NONE.with_type_hash(1);
+        let crossing = first.with_part_index(1);
+        let mut file = KFCFile::default();
+        let bundles = std::collections::HashMap::from([(1, ResourceBundleEntry::default())]).into();
+        file.set_resources(
+            std::collections::HashMap::from([(first, entry(0, 64)), (crossing, entry(60, 8))]).into(),
+            &crate::reflection::TypeRegistry::default(), Some(&bundles),
+        ).unwrap();
+        file.set_resource_chunks(chunks);
+        file.write(&mut File::create(directory.0.join("test.kfc")).unwrap()).unwrap();
+        std::fs::write(directory.0.join("test.kfc_resources"), &blob).unwrap();
+
+        let reader = KFCReader::new(&directory.0, "test").unwrap();
+        {
+            let mut cursor = reader.new_cursor().unwrap();
+            let mut output = vec![255];
+            assert!(cursor.read_resource_into(&first, &mut output).unwrap());
+            assert_eq!(&output[1..], &bytes[..64]);
+            assert_eq!(output[0], 255);
+            // Ending at offset 64 must not load the next chunk.
+            assert!(reader.chunk_cache[0].data.get().is_some());
+            assert!(reader.chunk_cache[1].data.get().is_none());
+            assert_eq!(cursor.read_resource(&crossing).unwrap().unwrap(), bytes[60..68]);
+        }
+
+        // A fresh cursor needs no disk data for chunks loaded by the old one.
+        std::fs::write(directory.0.join("test.kfc_resources"), []).unwrap();
+        let mut cursor = reader.new_cursor().unwrap();
+        assert_eq!(cursor.read_resource(&first).unwrap().unwrap(), bytes[..64]);
+        assert_eq!(cursor.read_resource(&crossing).unwrap().unwrap(), bytes[60..68]);
     }
 }

@@ -22,10 +22,12 @@ use walkdir::WalkDir;
 
 use crate::cli::{Cli, CommandImpact, Commands};
 use crate::logging::*;
+use crate::unpack_work::UnpackWork;
 
 mod cli;
 mod logging;
 mod util;
+mod unpack_work;
 
 macro_rules! fatal {
     ($($arg:tt)*) => {
@@ -259,7 +261,7 @@ fn unpack_files(
         .progress_chars("##-"));
 
     let total = guids.len() as u32;
-    let pending_guids = Mutex::new(guids.into_iter().collect::<Vec<_>>());
+    let pending_guids = UnpackWork::new(kfc_reader.file(), guids, thread_count);
     let failed_unpacks = AtomicU32::new(0);
     let processed_unpacks = AtomicU32::new(0);
     let failed_workers = AtomicU32::new(0);
@@ -296,17 +298,7 @@ fn unpack_files(
                     }
                 };
 
-                loop {
-                    let guid = {
-                        let mut lock = pending_guids.lock().unwrap();
-
-                        if let Some(entry) = lock.pop() {
-                            entry
-                        } else {
-                            break;
-                        }
-                    };
-
+                for guid in pending_guids.iter() {
                     let result: anyhow::Result<()> = (|| {
                         // If the type isn't in the registry, dump raw bytes instead of failing.
                         if type_registry.get_by_hash(LookupKey::Qualified(guid.type_hash())).is_none() {
@@ -446,8 +438,8 @@ fn unpack_stdout(
     guids: HashSet<&ResourceId>,
     thread_count: u8
 ) -> Result<(), Error> {
-    let pending_guids = Mutex::new(guids.into_iter().collect::<Vec<_>>());
-    let total = pending_guids.lock().unwrap().len() as u32;
+    let total = guids.len() as u32;
+    let pending_guids = UnpackWork::new(kfc_reader.file(), guids, thread_count);
     let (tx, rx) = std::sync::mpsc::sync_channel(1024);
     let processed_guids = AtomicU32::new(0);
     let failed_resources = AtomicU32::new(0);
@@ -480,17 +472,7 @@ fn unpack_stdout(
                     }
                 };
 
-                loop {
-                    let guid = {
-                        let mut lock = pending_guids.lock().unwrap();
-
-                        if let Some(entry) = lock.pop() {
-                            entry
-                        } else {
-                            break;
-                        }
-                    };
-
+                for guid in pending_guids.iter() {
                     buf.clear();
                     let descriptor = match crate::util::read_descriptor_into(
                         &mut reader,
@@ -525,9 +507,7 @@ fn unpack_stdout(
                             }).to_string()
                         }
                     };
-                    let result = descriptor.to_string();
-
-                    tx.send(result).unwrap();
+                    tx.send(descriptor).unwrap();
                     processed_guids.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
             });
