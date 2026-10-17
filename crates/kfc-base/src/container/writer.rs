@@ -1,6 +1,6 @@
-use std::{borrow::Borrow, fs::File, io::{BufWriter, Cursor, Seek, SeekFrom, Write}, path::{Path, PathBuf}};
+use std::{borrow::Borrow, collections::HashMap, fs::File, io::{BufWriter, Cursor, Seek, SeekFrom, Write}, path::{Path, PathBuf}};
 
-use crate::{container::header::ResourceChunkInfo, guid::{ContentHash, ResourceId}, io::{WriteExt, WriteSeekExt}, reflection::TypeRegistry};
+use crate::{Hash32, container::header::ResourceChunkInfo, guid::{ContentHash, ResourceId}, io::{WriteExt, WriteSeekExt}, reflection::TypeRegistry};
 
 use super::{header::{ContentEntry, ContainerInfo, KfcFormat, ResourceEntry}, KFCFile, KFCReadError, KFCWriteError, StaticMapBuilder};
 
@@ -300,10 +300,6 @@ where
     }
 
     fn submit_resource_data(&mut self) -> std::io::Result<()> {
-        if self.chunk_writer.get_ref().is_empty() {
-            return Ok(());
-        }
-
         let offset = self.resource_writer.stream_position()?;
         let chunk_data = self.chunk_writer.get_ref();
 
@@ -369,7 +365,6 @@ where
 
     pub fn finalize(mut self) -> Result<(), KFCWriteError> {
         self.submit_resource_data()?;
-        self.resource_writer.flush()?;
 
         // prepare container infos
 
@@ -390,15 +385,9 @@ where
             });
         }
 
-        // Keep the existing container directory for resource-only updates.
+        // make sure to have a power of two container files
 
-        let required_container_count = if self.container_writers.is_empty() && self.incremental_data.is_some() {
-            // An incremental resource edit must preserve the original content
-            // container directory. KFC4 packages can have any container count.
-            containers.len()
-        } else {
-            containers.len().next_power_of_two()
-        };
+        let required_container_count = containers.len().next_power_of_two();
 
         while containers.len() < required_container_count {
             let path = self.dat_path(containers.len());
@@ -443,7 +432,6 @@ where
         file.set_resource_chunks(chunks);
 
         file.write(&mut file_writer)?;
-        file_writer.flush()?;
 
         Ok(())
     }
@@ -493,85 +481,6 @@ where
         Ok(self.container_writers.last_mut().unwrap())
     }
 
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    use super::*;
-
-    static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
-
-    struct TestDirectory(PathBuf);
-
-    impl TestDirectory {
-        fn new() -> Self {
-            let path = std::env::temp_dir().join(format!(
-                "kfc-writer-{}-{}",
-                std::process::id(),
-                NEXT_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed),
-            ));
-            std::fs::create_dir(&path).unwrap();
-            Self(path)
-        }
-    }
-
-    impl Drop for TestDirectory {
-        fn drop(&mut self) {
-            std::fs::remove_dir_all(&self.0).unwrap();
-        }
-    }
-
-    #[test]
-    fn incremental_resource_finalize_preserves_content_container_count_and_chunks() {
-        let directory = TestDirectory::new();
-        let name = "test";
-        let mut reference = KFCFile::default();
-        reference.set_format(KfcFormat::Kfc4);
-        reference.set_containers(vec![ContainerInfo::default(); 3]);
-
-        let resource_data = vec![7; 64];
-        let compressed = zstd::encode_all(resource_data.as_slice(), 0).unwrap();
-        reference.set_resource_chunks(vec![ResourceChunkInfo {
-            offset: 0,
-            size: RESOURCE_CHUNK_ALIGNMENT,
-            compressed_size: compressed.len() as u64,
-            uncompressed_offset: 0,
-            uncompressed_size: resource_data.len() as u64,
-        }]);
-        let index_path = directory.0.join("test.kfc");
-        reference.write(&mut File::create(&index_path).unwrap()).unwrap();
-        let resource_path = directory.0.join("test.kfc_resources");
-        let mut blob = compressed;
-        blob.resize(RESOURCE_CHUNK_ALIGNMENT as usize, 0);
-        std::fs::write(&resource_path, &blob).unwrap();
-
-        let registry = TypeRegistry::default();
-        let writer = KFCWriter::new_incremental(&directory.0, name, &reference, &registry).unwrap();
-        writer.finalize().unwrap();
-
-        let rewritten = KFCFile::from_path(&index_path, false).unwrap();
-        assert_eq!(rewritten.containers().len(), 3);
-        assert_eq!(rewritten.resource_chunks().len(), 1);
-        assert_eq!(std::fs::read(resource_path).unwrap(), blob);
-        assert!(!directory.0.join("test_003.dat").exists());
-    }
-
-    #[test]
-    fn submitting_an_empty_resource_chunk_does_not_write_a_zstd_frame() {
-        let directory = TestDirectory::new();
-        File::create(directory.0.join("test.kfc")).unwrap();
-        File::create(directory.0.join("test.kfc_resources")).unwrap();
-        let registry = TypeRegistry::default();
-        let mut writer = KFCWriter::<&KFCFile, _>::new(&directory.0, "test", &registry, "test").unwrap();
-
-        writer.submit_resource_data().unwrap();
-        writer.resource_writer.flush().unwrap();
-
-        assert!(writer.resource_chunks.is_empty());
-        assert_eq!(writer.resource_writer.stream_position().unwrap(), 0);
-    }
 }
 
 struct ContainerWriter {

@@ -5,6 +5,9 @@ version.workspace = true
 authors.workspace = true
 
 [dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
 kfc-base = { path = "../kfc-base" }
 kfc-resource = { path = "../kfc-resource", optional = true }
 kfc-content = { path = "../kfc-content", optional = true }
@@ -15,4 +18,3 @@ resource = ["kfc-resource"]
 content = ["kfc-content"]
 
 [dev-dependencies]
-serde_json.workspace = true

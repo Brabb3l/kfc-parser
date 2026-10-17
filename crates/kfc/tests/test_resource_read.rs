@@ -1,24 +1,30 @@
+use std::path::PathBuf;
+
 use kfc::container::KFCReader;
 use kfc_base::{container::KFCFile, reflection::{LookupKey, TypeRegistry}};
 use kfc_resource::value::{ConversionOptions, Value};
 
-mod common;
+fn get_game_dir() -> PathBuf {
+    std::env::var("GAME_DIR")
+        .expect("GAME_DIR environment variable not set")
+        .into()
+}
 
 #[test]
 #[ignore = "requires GAME_DIR environment variable"]
 fn test_validate_resources_with_value() -> Result<(), Box<dyn std::error::Error>> {
     let mut buf = vec![0; 1024 * 1024]; // 1 MB buffer
 
-    let game = common::GameFiles::from_env();
-    let kfc_path = game.path("kfc");
-    let exe_path = game.path("exe");
+    let dir = get_game_dir();
+    let kfc_path = dir.join("enshrouded.kfc");
+    let exe_path = dir.join("enshrouded.exe");
 
     // Load TypeRegistry from the executable
     let type_registry = TypeRegistry::load_from_executable(&exe_path)?;
 
     // Open the KFC file
     let kfc_file = KFCFile::from_path(&kfc_path, false)?;
-    let mut reader = KFCReader::new(&game.dir, &game.file_name)?.into_cursor()?;
+    let mut reader = KFCReader::new(&dir, "enshrouded")?.into_cursor()?;
 
     // check parse json
     for guid in kfc_file.resources().keys() {
@@ -66,16 +72,16 @@ fn test_validate_resources_with_value() -> Result<(), Box<dyn std::error::Error>
 fn test_validate_resources_with_value_human() -> Result<(), Box<dyn std::error::Error>> {
     let mut buf = vec![0; 1024 * 1024]; // 1 MB buffer
 
-    let game = common::GameFiles::from_env();
-    let kfc_path = game.path("kfc");
-    let exe_path = game.path("exe");
+    let dir = get_game_dir();
+    let kfc_path = dir.join("enshrouded.kfc");
+    let exe_path = dir.join("enshrouded.exe");
 
     // Load TypeRegistry from the executable
     let type_registry = TypeRegistry::load_from_executable(&exe_path)?;
 
     // Open the KFC file
     let kfc_file = KFCFile::from_path(&kfc_path, false)?;
-    let mut reader = KFCReader::new(&game.dir, &game.file_name)?.into_cursor()?;
+    let mut reader = KFCReader::new(&dir, "enshrouded")?.into_cursor()?;
 
     // check parse json
     for guid in kfc_file.resources().keys() {
@@ -124,16 +130,16 @@ fn test_validate_resources_with_value_human() -> Result<(), Box<dyn std::error::
 fn test_value_serde_to_json() -> Result<(), Box<dyn std::error::Error>> {
     let mut buf = vec![0; 1024 * 1024]; // 1 MB buffer
 
-    let game = common::GameFiles::from_env();
-    let kfc_path = game.path("kfc");
-    let exe_path = game.path("exe");
+    let dir = get_game_dir();
+    let kfc_path = dir.join("enshrouded.kfc");
+    let exe_path = dir.join("enshrouded.exe");
 
     // Load TypeRegistry from the executable
     let type_registry = TypeRegistry::load_from_executable(&exe_path)?;
 
     // Open the KFC file
     let kfc_file = KFCFile::from_path(&kfc_path, false)?;
-    let mut reader = KFCReader::new(&game.dir, &game.file_name)?.into_cursor()?;
+    let mut reader = KFCReader::new(&dir, "enshrouded")?.into_cursor()?;
 
     // check parse json
     for guid in kfc_file.resources().keys() {

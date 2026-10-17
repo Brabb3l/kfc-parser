@@ -62,9 +62,9 @@ pub fn extract_reflection_data<P: AsRef<Path>>(
     let mut reference_table = HashMap::new();
     let mut reference_table_cursor = table_cursor.clone();
 
-    for i in 0..table_count {
+    for _ in 0..table_count {
         let offset = reference_table_cursor.read_u64()?;
-        reference_table.entry(offset).or_insert(i as usize);
+        reference_table.insert(offset, reference_table.len());
     }
 
     let mut table = Vec::with_capacity(table_count as usize);
@@ -131,7 +131,7 @@ fn read_type(
     pe_file: &PEFile,
     reference_table: &HashMap<u64, usize>,
     index: TypeIndex,
-) -> std::result::Result<TypeMetadata, ReflectionParseError> {
+) -> Result<TypeMetadata> {
     let name = cursor.read_pointee(pe_file)?
         .read_string(cursor.read_u64()? as usize)?;
     let impact_name = cursor.read_pointee(pe_file)?
@@ -148,12 +148,7 @@ fn read_type(
     let alignment = cursor.read_u16()?;
     let element_alignment = cursor.read_u16()?;
     let field_count = cursor.read_u32()?;
-    let primitive_type = cursor.read_u8()?;
-    let primitive_type = PrimitiveType::from_u8(primitive_type)
-        .ok_or_else(|| ReflectionParseError::UnknownPrimitiveType {
-            value: primitive_type,
-            name: qualified_name.clone(),
-        })?;
+    let primitive_type = PrimitiveType::from_u8(cursor.read_u8()?);
     let flags = TypeFlags::from_bits_truncate(cursor.read_u8()?);
     cursor.padding(2)?;
     let qualified_hash = cursor.read_u32()?;
