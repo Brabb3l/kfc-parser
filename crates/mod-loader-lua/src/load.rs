@@ -86,7 +86,7 @@ pub fn create_backup(
     bak_path.push_str(".bak");
     let bak_path = Path::new(&bak_path);
 
-    if bak_path.exists() && !validate_backup(path, bak_path) {
+    if bak_path.exists() && !validate_backup(path, bak_path)? {
         warn!(
             path = ?path,
             backup_path = ?bak_path,
@@ -103,11 +103,13 @@ pub fn create_backup(
         }
 
         if let Err(e) = std::fs::remove_file(bak_path) {
-            warn!(
+            error!(
                 path = ?bak_path,
                 error = %e,
                 "Failed to remove old backup file",
             );
+
+            return Err(());
         }
     }
 
@@ -155,7 +157,7 @@ pub fn restore_backup(
         return Err(());
     }
 
-    if !validate_backup(path, bak_path) {
+    if !validate_backup(path, bak_path)? {
         warn!(
             path = ?path,
             backup_path = ?bak_path,
@@ -183,21 +185,40 @@ pub fn restore_backup(
     Ok(())
 }
 
+/// Checks whether the backup file has the same version tag as the KFC file.
+///
+/// Returns `Err` if the version tag of the KFC file cannot be read, since
+/// compatibility cannot be determined in that case. An unreadable backup file
+/// is reported as incompatible.
 pub fn validate_backup(
     kfc_path: &Path,
     kfc_path_bak: &Path
-) -> bool {
-    let version_bak = match KFCFile::get_version_tag(kfc_path_bak) {
-        Ok(file) => file,
-        Err(_) => return false,
-    };
-
+) -> Result<bool, ()> {
     let version = match KFCFile::get_version_tag(kfc_path) {
-        Ok(file) => file,
-        Err(_) => return false,
+        Ok(version) => version,
+        Err(e) => {
+            error!(
+                path = ?kfc_path,
+                error = %e,
+                "Failed to read version tag of KFC file",
+            );
+            return Err(());
+        }
     };
 
-    version == version_bak
+    let version_bak = match KFCFile::get_version_tag(kfc_path_bak) {
+        Ok(version) => version,
+        Err(e) => {
+            warn!(
+                path = ?kfc_path_bak,
+                error = %e,
+                "Failed to read version tag of backup file, treating it as incompatible",
+            );
+            return Ok(false);
+        }
+    };
+
+    Ok(version == version_bak)
 }
 
 pub fn load_type_registry(
@@ -391,5 +412,116 @@ pub fn export_lua_definitions(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(name: &str) -> Self {
+            let dir = PathBuf::try_from(std::env::temp_dir())
+                .unwrap()
+                .join(format!("eml-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Writes a minimal KFC header followed by the given version tag.
+    fn write_kfc(path: &Path, version: &str) {
+        const HEADER_SIZE: u32 = 16 + 16 * 8;
+        const VERSION_LOCATION: u32 = 16;
+
+        let mut data = Vec::new();
+        data.extend_from_slice(b"KFC3");
+        data.extend_from_slice(&0u32.to_le_bytes());
+        data.extend_from_slice(&12u32.to_le_bytes());
+        data.extend_from_slice(&[0; 4]);
+        data.extend_from_slice(&(HEADER_SIZE - VERSION_LOCATION).to_le_bytes());
+        data.extend_from_slice(&(version.len() as u32).to_le_bytes());
+        data.resize(HEADER_SIZE as usize, 0);
+        data.extend_from_slice(version.as_bytes());
+
+        std::fs::write(path, data).unwrap();
+    }
+
+    fn read_version(path: &Path) -> String {
+        KFCFile::get_version_tag(path).unwrap()
+    }
+
+    #[test]
+    fn create_backup_keeps_backup_with_equal_version() {
+        let dir = TempDir::new("backup-equal");
+        let kfc_path = dir.0.join("test.kfc");
+        let bak_path = dir.0.join("test.kfc.bak");
+        write_kfc(&kfc_path, "1.0");
+        write_kfc(&bak_path, "1.0");
+        let backup = std::fs::read(&bak_path).unwrap();
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&kfc_path)
+            .and_then(|mut file| std::io::Write::write_all(&mut file, b"patched"))
+            .unwrap();
+
+        assert_eq!(create_backup(&kfc_path), Ok(bak_path.clone()));
+        assert_eq!(std::fs::read(&bak_path).unwrap(), backup);
+    }
+
+    #[test]
+    fn create_backup_replaces_backup_with_different_version() {
+        let dir = TempDir::new("backup-different");
+        let kfc_path = dir.0.join("test.kfc");
+        let bak_path = dir.0.join("test.kfc.bak");
+        write_kfc(&kfc_path, "2.0");
+        write_kfc(&bak_path, "1.0");
+
+        assert_eq!(create_backup(&kfc_path), Ok(bak_path.clone()));
+        assert_eq!(read_version(&bak_path), "2.0");
+    }
+
+    #[test]
+    fn create_backup_replaces_unreadable_backup() {
+        let dir = TempDir::new("backup-corrupt");
+        let kfc_path = dir.0.join("test.kfc");
+        let bak_path = dir.0.join("test.kfc.bak");
+        write_kfc(&kfc_path, "2.0");
+        std::fs::write(&bak_path, b"corrupt").unwrap();
+
+        assert_eq!(create_backup(&kfc_path), Ok(bak_path.clone()));
+        assert_eq!(read_version(&bak_path), "2.0");
+    }
+
+    #[test]
+    fn create_backup_keeps_backup_if_kfc_is_unreadable() {
+        let dir = TempDir::new("backup-unreadable");
+        let kfc_path = dir.0.join("test.kfc");
+        let bak_path = dir.0.join("test.kfc.bak");
+        std::fs::write(&kfc_path, b"corrupt").unwrap();
+        write_kfc(&bak_path, "1.0");
+
+        assert_eq!(create_backup(&kfc_path), Err(()));
+        assert_eq!(read_version(&bak_path), "1.0");
+    }
+
+    #[test]
+    fn create_backup_keeps_backup_if_kfc_is_missing() {
+        let dir = TempDir::new("backup-missing");
+        let kfc_path = dir.0.join("test.kfc");
+        let bak_path = dir.0.join("test.kfc.bak");
+        write_kfc(&bak_path, "1.0");
+
+        assert_eq!(create_backup(&kfc_path), Err(()));
+        assert_eq!(read_version(&bak_path), "1.0");
     }
 }
