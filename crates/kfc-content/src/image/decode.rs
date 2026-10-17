@@ -77,18 +77,18 @@ macro_rules! decode_component {
     (S8, $value:expr, $index:expr) => { ($value[$index] & 0x7F) | (!$value[$index] & 0x80) };
     (U16, $value:expr, $index:expr) => { decode_component!(U8, $value, $index * 2 + 1) };
     (S16, $value:expr, $index:expr) => { decode_component!(S8, $value, $index * 2 + 1) };
-    (U32, $value:expr, $index:expr) => { decode_component!(U16, $value, $index * 4 + 3) };
-    (S32, $value:expr, $index:expr) => { decode_component!(S16, $value, $index * 4 + 3) };
-    (U64, $value:expr, $index:expr) => { decode_component!(U32, $value, $index * 8 + 7) };
-    (S64, $value:expr, $index:expr) => { decode_component!(S32, $value, $index * 8 + 7) };
+    (U32, $value:expr, $index:expr) => { decode_component!(U8, $value, $index * 4 + 3) };
+    (S32, $value:expr, $index:expr) => { decode_component!(S8, $value, $index * 4 + 3) };
+    (U64, $value:expr, $index:expr) => { decode_component!(U8, $value, $index * 8 + 7) };
+    (S64, $value:expr, $index:expr) => { decode_component!(S8, $value, $index * 8 + 7) };
     (F16, $value:expr, $index:expr) => {
-        ((f16::from_le_bytes($value[$index * 2..$index * 2 + 2].try_into().unwrap()).to_f32()) * 255.0) as u8
+        ((f16::from_le_bytes($value[$index * 2..$index * 2 + 2].try_into().unwrap()).to_f32()) * 255.0).round() as u8
     };
     (F32, $value:expr, $index:expr) => {
-        ((f32::from_le_bytes($value[$index * 4..$index * 4 + 4].try_into().unwrap())) * 255.0) as u8
+        ((f32::from_le_bytes($value[$index * 4..$index * 4 + 4].try_into().unwrap())) * 255.0).round() as u8
     };
     (F64, $value:expr, $index:expr) => {
-        ((f64::from_le_bytes($value[$index * 8..$index * 8 + 8].try_into().unwrap())) * 255.0) as u8
+        ((f64::from_le_bytes($value[$index * 8..$index * 8 + 8].try_into().unwrap())) * 255.0).round() as u8
     };
 }
 
@@ -218,6 +218,7 @@ macro_rules! decode_texel {
         $dst[0] = map5to8(r);
         $dst[1] = map6to8(g);
         $dst[2] = map5to8(b);
+        $dst[3] = 255;
 
         2
     }};
@@ -269,9 +270,9 @@ macro_rules! decode_texel {
         let g = ((value >> 11) & 0x7FF) as u16;
         let r = (value & 0x7FF) as u16;
 
-        $dst[0] = (ufloat_10(r) * 255.0) as u8;
+        $dst[0] = (ufloat_11(r) * 255.0) as u8;
         $dst[1] = (ufloat_11(g) * 255.0) as u8;
-        $dst[2] = (ufloat_11(b) * 255.0) as u8;
+        $dst[2] = (ufloat_10(b) * 255.0) as u8;
         $dst[3] = 255;
 
         4
@@ -283,9 +284,12 @@ macro_rules! decode_texel {
         let g = ((value >> 9) & 0x1FF) as u32;
         let r = (value & 0x1FF) as u32;
 
-        $dst[0] = (ufloat(e, r, 5, 9) * 255.0) as u8;
-        $dst[1] = (ufloat(e, g, 5, 9) * 255.0) as u8;
-        $dst[2] = (ufloat(e, b, 5, 9) * 255.0) as u8;
+        // shared exponent with a bias of 15, mantissas have no implicit leading 1
+        let scale = (2.0f32).powi(e as i32 - 15 - 9);
+
+        $dst[0] = (r as f32 * scale * 255.0) as u8;
+        $dst[1] = (g as f32 * scale * 255.0) as u8;
+        $dst[2] = (b as f32 * scale * 255.0) as u8;
         $dst[3] = 255;
 
         4
@@ -318,8 +322,19 @@ pub fn decode(
     src: &[u8],
     dst: &mut [u8],
 ) -> anyhow::Result<()> {
-    let src = &src[..size_of_format(format, width, height)];
-    let dst = &mut dst[..width * height * 4];
+    let src_size = size_of_format(format, width, height);
+    let dst_size = width * height * 4;
+
+    if src.len() < src_size {
+        anyhow::bail!("Source buffer too small: expected at least {} bytes, got {}", src_size, src.len());
+    }
+
+    if dst.len() < dst_size {
+        anyhow::bail!("Destination buffer too small: expected at least {} bytes, got {}", dst_size, dst.len());
+    }
+
+    let src = &src[..src_size];
+    let dst = &mut dst[..dst_size];
 
     match format {
         PixelFormat::None => return Err(anyhow::anyhow!("Unsupported pixel format: None")),

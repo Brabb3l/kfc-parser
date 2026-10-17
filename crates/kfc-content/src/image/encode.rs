@@ -39,37 +39,40 @@ macro_rules! encode_component {
         $dst[$index] = $src.wrapping_add(1 << 7);
     }};
     (U16, $src:expr, $dst:expr, $index:expr) => {{
-        $dst[$index..$index + 2].fill($src);
+        let src = ($src as u16) * 0x0101;
+        $dst[$index * 2..$index * 2 + 2].copy_from_slice(&src.to_le_bytes());
     }};
     (S16, $src:expr, $dst:expr, $index:expr) => {{
-        let src = ($src as u16).wrapping_add(1 << 15);
-        $dst.copy_from_slice(&src.to_le_bytes());
+        let src = (($src as u16) * 0x0101).wrapping_add(1 << 15);
+        $dst[$index * 2..$index * 2 + 2].copy_from_slice(&src.to_le_bytes());
     }};
     (U32, $src:expr, $dst:expr, $index:expr) => {{
-        $dst[$index..$index + 4].fill($src);
+        let src = ($src as u32) * 0x0101_0101;
+        $dst[$index * 4..$index * 4 + 4].copy_from_slice(&src.to_le_bytes());
     }};
     (S32, $src:expr, $dst:expr, $index:expr) => {{
-        let src = ($src as u32).wrapping_add(1 << 31);
-        $dst.copy_from_slice(&src.to_le_bytes());
+        let src = (($src as u32) * 0x0101_0101).wrapping_add(1 << 31);
+        $dst[$index * 4..$index * 4 + 4].copy_from_slice(&src.to_le_bytes());
     }};
     (U64, $src:expr, $dst:expr, $index:expr) => {{
-        $dst[$index..$index + 8].fill($src);
+        let src = ($src as u64) * 0x0101_0101_0101_0101;
+        $dst[$index * 8..$index * 8 + 8].copy_from_slice(&src.to_le_bytes());
     }};
     (S64, $src:expr, $dst:expr, $index:expr) => {{
-        let src = ($src as u64).wrapping_add(1 << 63);
-        $dst.copy_from_slice(&src.to_le_bytes());
+        let src = (($src as u64) * 0x0101_0101_0101_0101).wrapping_add(1 << 63);
+        $dst[$index * 8..$index * 8 + 8].copy_from_slice(&src.to_le_bytes());
     }};
     (F16, $src:expr, $dst:expr, $index:expr) => {{
         let f16_bytes: [u8; 2] = f16::from_f32(($src as f32) / 255.0).to_le_bytes();
-        $dst.copy_from_slice(&f16_bytes);
+        $dst[$index * 2..$index * 2 + 2].copy_from_slice(&f16_bytes);
     }};
     (F32, $src:expr, $dst:expr, $index:expr) => {{
         let f32_bytes: [u8; 4] = (($src as f32) / 255.0).to_le_bytes();
-        $dst.copy_from_slice(&f32_bytes);
+        $dst[$index * 4..$index * 4 + 4].copy_from_slice(&f32_bytes);
     }};
     (F64, $src:expr, $dst:expr, $index:expr) => {{
         let f64_bytes: [u8; 8] = (($src as f64) / 255.0).to_le_bytes();
-        $dst.copy_from_slice(&f64_bytes);
+        $dst[$index * 8..$index * 8 + 8].copy_from_slice(&f64_bytes);
     }};
 }
 
@@ -210,8 +213,19 @@ pub fn encode(
     src: &[u8],
     dst: &mut [u8],
 ) -> anyhow::Result<()> {
-    let src = &src[..width * height * 4];
-    let dst = &mut dst[..size_of_format(format, width, height)];
+    let src_size = width * height * 4;
+    let dst_size = size_of_format(format, width, height);
+
+    if src.len() < src_size {
+        anyhow::bail!("Source buffer too small: expected at least {} bytes, got {}", src_size, src.len());
+    }
+
+    if dst.len() < dst_size {
+        anyhow::bail!("Destination buffer too small: expected at least {} bytes, got {}", dst_size, dst.len());
+    }
+
+    let src = &src[..src_size];
+    let dst = &mut dst[..dst_size];
 
     match format {
         PixelFormat::None => anyhow::bail!("Unsupported pixel format: None"),
