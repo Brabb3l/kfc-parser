@@ -67,3 +67,36 @@ The water data is stored in `keen::WaterChunkResource` objects.
 The entities placed in the scene are stored in `keen::SceneEntityChunkResource` objects.
 Each chunk contains a list of template references, models and entity spawns.
 The amount of chunks is determined by the `entityChunkCount` (x, z) field in the `keen::SceneResource`.
+
+#### Map Marker
+Map markers are stored in `keen::MapMarkerRegistryResource` and are a `MapMarkerType`.
+```lua
+game.assets.get_resources_by_type("keen::MapMarkerRegistryResource")
+```
+##### Structure
+| Property | Type | Description |
+|----------|------|-------------|
+| `typeName` | `ObjectReference<keen.LocaTag>` | Display name (access `.keenglish` for text) |
+| `markerId` | `keen.HashKey32` | Unique identifier |
+| `sortingCategory` | `keen.MarkerTypeSorting` | **Group**: `"None"`, `"FlameRelated"`, `"Dungeons"`, `"Locations"`, `"CustomMarker"` |
+| `sortingWeight` | `u8` | Sort priority |
+| `isHighlightable` | `bool` | Can be highlighted |
+| `canBeFiltered` | `bool` | Can be filtered in UI |
+| `isFastTravelDestination` | `bool` | Key property for fast travel |
+| `isCustomMarkerType` | `bool` | Is player-placed marker |
+| `icon` / `mutedIcon` | `keen.UiTexture` | Icon textures |
+| `showLabel` / `showRange` | `bool` | UI display options |
+| `scaleWithZoom` | `bool` | Zoom behavior |
+
+##### **keen.ecs.MapMarker** (Runtime Instance - attached to entities)
+| Property | Type | Description |
+|----------|------|-------------|
+| `markerId` | `ObjectReference<keen.LocaTag>` | Name reference |
+| `markerType` | `ObjectReference<keen.MapMarkerType>` | Link to template |
+
+##### **keen.ecs.MapMarkerVisibilityState**
+| Property | Type | Values |
+|----------|------|--------|
+| `visibility` | `MapMarkerVisibilityType` | `"Hidden"`, `"Hint"`, `"Visible"`, `"Completed"` |
+
+
