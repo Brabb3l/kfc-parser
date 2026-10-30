@@ -963,6 +963,7 @@ dependencies = [
  "bitflags 2.10.0",
  "indexmap",
  "serde",
+ "tempfile",
  "thiserror 2.0.17",
  "zstd",
 ]

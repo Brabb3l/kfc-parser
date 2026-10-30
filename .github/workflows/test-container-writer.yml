@@ -1,0 +1,25 @@
+name: Test container writer
+
+on:
+  pull_request:
+    paths:
+      - 'crates/kfc-base/**'
+      - 'Cargo.lock'
+      - '.github/workflows/test-container-writer.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/kfc-base/**'
+      - 'Cargo.lock'
+      - '.github/workflows/test-container-writer.yml'
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.88.0'
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p kfc-base --lib --locked

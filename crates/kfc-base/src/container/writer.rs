@@ -389,7 +389,10 @@ where
         while containers.len() < required_container_count {
             let path = self.dat_path(containers.len());
 
-            if !path.exists() || self.options.truncate_containers {
+            // Incremental padding follows all reference and newly written containers.
+            // Clear stale mod data so these files match their zero-size index entries,
+            // even when callers leave truncate_containers at its default value.
+            if !path.exists() || self.options.truncate_containers || self.incremental_data.is_some() {
                 File::create(path)?;
             }
 
@@ -508,4 +511,70 @@ impl ContainerWriter {
         self.writer.flush()
     }
 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    const NAME: &str = "incremental-padding-test";
+
+    fn reference(directory: &Path) -> KFCFile {
+        let mut reference = KFCFile::default();
+        reference.set_game_version("padding-regression".into());
+        let mut containers = Vec::new();
+        for index in 0..3 {
+            let bytes = format!("original container {index}").into_bytes();
+            fs::write(directory.join(format!("{NAME}_{index:03}.dat")), &bytes).unwrap();
+            containers.push(ContainerInfo { size: bytes.len() as u64, count: 0 });
+        }
+        reference.set_containers(containers);
+        reference.write(&mut File::create(directory.join(format!("{NAME}.kfc"))).unwrap()).unwrap();
+        File::create(directory.join(format!("{NAME}.kfc_resources"))).unwrap();
+        reference
+    }
+
+    fn patch(directory: &Path, reference: &KFCFile, count: usize) -> Result<(), KFCWriteError> {
+        let mut writer = KFCWriter::new_incremental_with_options(
+            directory, NAME, reference, TypeRegistry::default(),
+            KFCWriteOptions { overwrite_containers: true, max_container_size: 4096, ..Default::default() },
+        ).unwrap();
+        for index in 0..count {
+            let bytes = vec![index as u8 + 1; 4096];
+            writer.write_content(&ContentHash::from_data(&bytes), &bytes).unwrap();
+        }
+        writer.finalize()
+    }
+
+    #[test]
+    fn incremental_padding_clears_stale_mod_content_without_touching_originals() {
+        for count in [1, 3] {
+            let directory = tempfile::tempdir().unwrap();
+            let reference = reference(directory.path());
+            let originals: Vec<_> = (0..3).map(|index|
+                fs::read(directory.path().join(format!("{NAME}_{index:03}.dat"))).unwrap()).collect();
+            for _ in 0..2 {
+                for count in [count, 0] {
+                    patch(directory.path(), &reference, count).unwrap();
+                    let actual = KFCFile::from_path(directory.path().join(format!("{NAME}.kfc")), false).unwrap();
+                    for (index, container) in actual.containers().iter().enumerate() {
+                        assert_eq!(fs::metadata(directory.path().join(format!("{NAME}_{index:03}.dat"))).unwrap().len(),
+                                   container.size, "container {index} after {count} writes");
+                    }
+                    for (index, expected) in originals.iter().enumerate() {
+                        assert_eq!(&fs::read(directory.path().join(format!("{NAME}_{index:03}.dat"))).unwrap(), expected);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn incremental_padding_propagates_failure_to_truncate_stale_slot() {
+        let directory = tempfile::tempdir().unwrap();
+        let reference = reference(directory.path());
+        fs::create_dir(directory.path().join(format!("{NAME}_003.dat"))).unwrap();
+        assert!(patch(directory.path(), &reference, 0).is_err());
+    }
 }

@@ -12,3 +12,6 @@ indexmap.workspace = true
 
 aes = { version = "0.8.4", features = ["hazmat"] }
 zstd = "0.13.3"
+
+[dev-dependencies]
+tempfile = "3.23.0"
