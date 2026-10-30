@@ -7,7 +7,6 @@ on:
       - 'Cargo.lock'
       - '.github/workflows/test-container-writer.yml'
   push:
-    branches: [main]
     paths:
       - 'crates/kfc-base/**'
       - 'Cargo.lock'
