@@ -104,6 +104,9 @@ pub fn run(
 
     runner.run()?;
 
+    // how many values the loader keeps for the mods (each used to be an mlua reference, of which there can be 1,000,000)
+    info!("Lua values kept by the loader: {}", crate::lua::held_slots_used());
+
     let app_state = runner.lua.app_data_ref::<AppState>().unwrap();
 
     if app_state.has_feature(AppFeatures::PATCH) {

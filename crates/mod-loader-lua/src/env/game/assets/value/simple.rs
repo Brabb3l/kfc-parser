@@ -5,11 +5,11 @@ use kfc::{resource::value::{Value, Variant}, reflection::{PrimitiveType, TypeMet
 use mlua::{AnyUserData, Function, MetaMethod, UserData};
 use ouroboros::self_referencing;
 
-use crate::{alias::TypeHandle, env::value::{converter::{Converter, LuaConversionErrorKind}, name_of, validate_and_clone_lua_value, validator::try_clone_lua_value}, lua::{FunctionArgs, LuaError, LuaValue, MethodArgs}};
+use crate::{alias::TypeHandle, env::value::{converter::{Converter, LuaConversionErrorKind}, name_of, validate_and_clone_lua_value, validator::try_clone_lua_value}, lua::{FunctionArgs, Held, LuaError, LuaValue, MethodArgs}};
 
 pub struct StructValue {
     r#type: TypeHandle,
-    fields: Rc<RefCell<HashMap<String, LuaValue>>>,
+    fields: Rc<RefCell<HashMap<String, Held>>>,
 }
 
 impl StructValue {
@@ -27,7 +27,7 @@ impl StructValue {
     ) -> mlua::Result<Self> {
         Ok(Self {
             r#type,
-            fields: Rc::new(RefCell::new(map)),
+            fields: Rc::new(RefCell::new(map.into_iter().map(|(k, v)| (k, Held::new(v))).collect())),
         })
     }
 
@@ -49,7 +49,7 @@ impl StructValue {
             let field_type = self.r#type.get_field_type(key)
                 .expect("field type must be present");
             let converted_value = converter.process(
-                value,
+                &value.get(),
                 &field_type,
             )?;
 
@@ -71,7 +71,7 @@ impl StructValue {
         for (key, value) in table.iter() {
             fields.insert(
                 key.clone(),
-                try_clone_lua_value(value, lua)?
+                Held::new(try_clone_lua_value(&value.get(), lua)?)
             );
         }
 
@@ -92,7 +92,7 @@ impl StructValue {
         &self,
         key: String,
     ) -> mlua::Result<LuaValue> {
-        Ok(self.fields.borrow().get(&key).cloned().unwrap_or(LuaValue::Nil))
+        Ok(self.fields.borrow().get(&key).map(Held::get).unwrap_or(LuaValue::Nil))
     }
 
     pub fn set(
@@ -111,6 +111,7 @@ impl StructValue {
         let value = validate_and_clone_lua_value(value, &self.r#type, lua)
             .map_err(LuaError::external)?;
 
+        let value = Held::new(value);
         self.fields.borrow_mut().insert(key, value);
 
         Ok(())
@@ -158,6 +159,7 @@ impl UserData for StructValue {
             result.push('{');
 
             for (i, (key, value)) in values.iter().enumerate() {
+                let value = value.get();
                 if i > 0 {
                     result.push(',');
                 }
@@ -187,7 +189,7 @@ impl UserData for StructValue {
 #[self_referencing]
 struct StructValueIter {
     r#type: TypeHandle,
-    fields: Rc<RefCell<HashMap<String, LuaValue>>>,
+    fields: Rc<RefCell<HashMap<String, Held>>>,
     #[borrows(r#type)]
     #[not_covariant]
     keys: RefCell<Box<dyn Iterator<Item = &'this str> + 'this>>,
@@ -235,7 +237,7 @@ impl StructValueIter {
         let value = self.with_fields(|fields| {
             fields.borrow()
                 .get(key)
-                .cloned()
+                .map(Held::get)
                 .unwrap_or(LuaValue::Nil)
         });
 
@@ -249,7 +251,7 @@ impl UserData for StructValueIter {}
 pub struct ArrayValue {
     r#type: TypeHandle,
     inner_type: TypeHandle,
-    values: Rc<RefCell<Vec<LuaValue>>>,
+    values: Rc<RefCell<Vec<Held>>>,
 }
 
 impl ArrayValue {
@@ -269,7 +271,7 @@ impl ArrayValue {
             inner_type: r#type.inner_type()
                 .expect("array type must have an inner type"),
             r#type,
-            values: Rc::new(RefCell::new(data)),
+            values: Rc::new(RefCell::new(data.into_iter().map(Held::new).collect())),
         })
     }
 
@@ -292,7 +294,7 @@ impl ArrayValue {
             converter.path.push_index(i);
 
             let converted_value = converter.process(
-                value,
+                &value.get(),
                 &field_type,
             )?;
             result.push(converted_value);
@@ -311,7 +313,7 @@ impl ArrayValue {
         let mut result = Vec::with_capacity(values.len());
 
         for value in values.iter() {
-            result.push(try_clone_lua_value(value, lua)?);
+            result.push(Held::new(try_clone_lua_value(&value.get(), lua)?));
         }
 
         Ok(Self {
@@ -341,7 +343,7 @@ impl ArrayValue {
         }
 
         let value = self.values.borrow().get(index - 1)
-            .cloned()
+            .map(Held::get)
             .unwrap_or(LuaValue::Nil);
 
         Ok(value)
@@ -358,6 +360,7 @@ impl ArrayValue {
         let value = validate_and_clone_lua_value(value, &self.r#type, lua)
             .map_err(LuaError::external)?;
 
+        let value = Held::new(value);
         self.values.borrow_mut()[index] = value;
 
         Ok(())
@@ -375,6 +378,7 @@ impl ArrayValue {
         let value = validate_and_clone_lua_value(value, &self.r#type, lua)
             .map_err(LuaError::external)?;
 
+        let value = Held::new(value);
         self.values.borrow_mut().insert(index, value);
 
         Ok(())
@@ -395,7 +399,9 @@ impl ArrayValue {
             return Ok(None);
         }
 
-        Ok(Some(self.values.borrow_mut().remove(index)))
+        let removed = self.values.borrow_mut().remove(index);
+
+        Ok(Some(removed.get()))
     }
 
     pub fn clear(&mut self) -> mlua::Result<()> {
@@ -475,6 +481,7 @@ impl UserData for ArrayValue {
             result.push('[');
 
             for (i, value) in values.iter().enumerate() {
+                let value = value.get();
                 if i > 0 {
                     result.push(',');
                 }
@@ -499,7 +506,7 @@ impl UserData for ArrayValue {
 }
 
 struct ArrayValueIter {
-    values: Rc<RefCell<Vec<LuaValue>>>,
+    values: Rc<RefCell<Vec<Held>>>,
     index: usize,
 }
 
@@ -531,7 +538,7 @@ impl ArrayValueIter {
         }
 
         let key = self.index;
-        let value = self.values.borrow()[key].clone();
+        let value = self.values.borrow()[key].get();
 
         self.index += 1;
 
@@ -545,7 +552,7 @@ impl UserData for ArrayValueIter {}
 pub struct VariantValue {
     r#type: TypeHandle,
     variant_type: TypeHandle,
-    value: LuaValue,
+    value: Held,
 }
 
 impl VariantValue {
@@ -565,7 +572,7 @@ impl VariantValue {
         Ok(Self {
             r#type,
             variant_type,
-            value,
+            value: Held::new(value),
         })
     }
 
@@ -584,7 +591,7 @@ impl VariantValue {
         converter: &mut Converter,
     ) -> Result<Value, LuaConversionErrorKind> {
         let value = converter.process(
-            &self.value,
+            &self.value.get(),
             &self.variant_type,
         )?
             .into_struct()
@@ -603,7 +610,7 @@ impl VariantValue {
         Ok(Self {
             r#type: self.r#type.clone(),
             variant_type: self.variant_type.clone(),
-            value: try_clone_lua_value(&self.value, lua)?,
+            value: Held::new(try_clone_lua_value(&self.value.get(), lua)?),
         })
     }
 
@@ -624,11 +631,11 @@ impl UserData for VariantValue {
 
     fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
         fields.add_field_method_get("type", |_, this| Ok(this.variant_type().qualified_name.clone()));
-        fields.add_field_method_get("value", |_, this| Ok(this.value.clone()));
+        fields.add_field_method_get("value", |_, this| Ok(this.value.get()));
 
         fields.add_field_method_set("value", |lua, this, value: LuaValue| {
             this.value = validate_and_clone_lua_value(&value, &this.variant_type, lua)
-                .map_err(LuaError::external)?;
+                .map_err(LuaError::external)?.into();
 
             Ok(())
         });
