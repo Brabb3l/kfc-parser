@@ -5,7 +5,7 @@ use mod_loader::ModEnvironment;
 use once_cell::unsync::OnceCell;
 use kfc::{container::{KFCCursor, KFCFile, KFCReader, KFCWriter}, guid::{ContentHash, ResourceId}, reflection::{LookupKey, TypeHandle, TypeIndex, TypeRegistry}, resource::value::Value};
 
-use crate::{RunArgs, alias::{MappedValue, PathBuf}, cache::CacheDiff, env::{Type, game::value::is_dirty_lua_value, value::{convert_lua_to_value, convert_value_to_lua, validate_and_clone_lua_value}}, log::warn, lua::{LuaError, LuaValue}};
+use crate::{RunArgs, alias::{MappedValue, PathBuf}, cache::CacheDiff, env::{Type, game::value::is_dirty_lua_value, value::{convert_lua_to_value, convert_value_to_lua, validate_and_clone_lua_value}}, log::warn, lua::{Held, LuaError, LuaValue}};
 
 pub struct AppState {
     env: ModEnvironment,
@@ -278,7 +278,7 @@ impl AppState {
         let info = Rc::new(ResourceInfo {
             resource_id: *guid,
             original_value: OnceCell::new(),
-            value: RefCell::new(Some(value)),
+            value: RefCell::new(Some(Held::new(value))),
             is_dirty: Cell::new(true),
         });
 
@@ -390,7 +390,7 @@ pub struct ResourceInfo {
     pub resource_id: ResourceId,
 
     original_value: OnceCell<Option<MappedValue>>,
-    value: RefCell<Option<LuaValue>>,
+    value: RefCell<Option<Held>>,
     is_dirty: Cell<bool>,
 }
 
@@ -401,7 +401,7 @@ impl ResourceInfo {
         lua: &mlua::Lua,
     ) -> mlua::Result<LuaValue> {
         if let Some(value) = self.value.borrow().as_ref() {
-            return Ok(value.clone());
+            return Ok(value.get());
         }
 
         let value = match self.get_mapped_value(lua)? {
@@ -409,7 +409,7 @@ impl ResourceInfo {
             None => LuaValue::Nil,
         };
 
-        self.value.replace(Some(value.clone()));
+        self.value.replace(Some(Held::new(value.clone())));
 
         Ok(value)
     }
@@ -435,7 +435,7 @@ impl ResourceInfo {
             lua,
         ).map_err(LuaError::external)?;
 
-        self.value.replace(Some(lua_value));
+        self.value.replace(Some(Held::new(lua_value)));
         self.is_dirty.replace(true);
 
         Ok(())
@@ -448,11 +448,11 @@ impl ResourceInfo {
         let app_state = lua.app_data_ref::<AppState>().unwrap();
         let type_registry = app_state.type_registry();
 
-        let lua_value = self.value.borrow();
-        let lua_value = match lua_value.as_ref() {
-            Some(value) => value,
+        let lua_value = match self.value.borrow().as_ref() {
+            Some(value) => value.get(),
             None => return Ok(None),
         };
+        let lua_value = &lua_value;
 
         if !self.is_dirty.get() && !is_dirty_lua_value(lua_value)? {
             return Ok(None);

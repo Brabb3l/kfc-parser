@@ -5,10 +5,13 @@ use mlua::{MetaMethod, Table};
 mod cast;
 mod args;
 mod error;
+mod held;
 
 pub use cast::*;
 pub use args::*;
 pub use error::*;
+pub use held::Held;
+pub use held::slots_used as held_slots_used;
 
 pub type LuaValue = mlua::Value;
 
@@ -35,6 +38,9 @@ impl LuaVM {
         globals.raw_remove("loadfile")?;
 
         register_warn_function(&lua);
+
+        // the store for Lua values kept by Rust (see held.rs)
+        held::init(&lua)?;
 
         Ok(Self(lua))
     }
